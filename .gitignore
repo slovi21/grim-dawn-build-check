@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.ruff_cache/
+.mypy_cache/
+
+# installer build output (installer/build_installer.py)
+build/
+dist/

@@ -1,0 +1,1 @@
+"""gdcheck.domain layer."""

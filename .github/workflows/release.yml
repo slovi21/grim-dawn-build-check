@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install Inno Setup
+        run: choco install innosetup --version=6.7.1 -y --no-progress
+      # Tag v2026-10-03.75 builds version 2026-10-03.75; build_installer.py exits 2 unless it equals VERSION.txt.
+      - name: Build installer (tag)
+        if: github.ref_type == 'tag'
+        run: python installer/build_installer.py --version "$($env:GITHUB_REF_NAME.Substring(1))" --out dist
+      # A manual run has no tag: it builds the version in VERSION.txt and publishes nothing.
+      - name: Build installer (manual run)
+        if: github.ref_type != 'tag'
+        run: python installer/build_installer.py --version "$((Get-Content VERSION.txt -Raw).Trim())" --out dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: |
+            dist/GrimDawnBuildCheck-Setup.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+  install-test:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: Install silently
+        run: |
+          $setup = Start-Process -FilePath "dist\GrimDawnBuildCheck-Setup.exe" -Wait -PassThru -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=$env:GITHUB_WORKSPACE\install.log")
+          if ($setup.ExitCode -ne 0) { throw "Installer exited with $($setup.ExitCode)" }
+      - name: Run the installed program with a bare PATH
+        run: |
+          # Nothing but System32 on PATH: the installed program must not depend on the runner's Python.
+          $env:PATH = "C:\Windows\System32"
+          $env:GDCHECK_NOPAUSE = "1"
+          $app = Join-Path $env:LOCALAPPDATA "Programs\Grim Dawn Build Check"
+          & "$app\python.exe" -X utf8 -m gdcheck --where
+          if ($LASTEXITCODE -ne 0) { throw "gdcheck --where returned $LASTEXITCODE (expected 0)" }
+          # No Grim Dawn on the runner: the self-test must say so and return 1.
+          $text = cmd /d /s /c "`"$app\start.cmd`" --selftest" 2>&1 | Out-String
+          $rc = $LASTEXITCODE
+          Write-Output $text
+          if ($rc -ne 1) { throw "start.cmd --selftest returned $rc (expected 1)" }
+          if ($text -notmatch "Grim Dawn installation not found") { throw "start.cmd --selftest did not report the missing game" }
+          if ($text -match "Traceback") { throw "start.cmd --selftest crashed with a traceback" }
+          # Actions ends a pwsh step with the last native exit code (1 here, as expected): end cleanly.
+          exit 0
+      - name: Uninstall and check that nothing is left
+        run: |
+          $app = Join-Path $env:LOCALAPPDATA "Programs\Grim Dawn Build Check"
+          $data = Join-Path $env:LOCALAPPDATA "GrimDawnBuildCheck"
+          # The earlier steps never create the data folder (no game on the runner), so plant a probe:
+          # otherwise "data folder gone" would also hold with a broken [UninstallDelete] in the installer.
+          New-Item -ItemType File -Force -Path "$env:LOCALAPPDATA\GrimDawnBuildCheck\out\probe.txt" | Out-Null
+          if (-not (Test-Path $data)) { throw "Could not create the probe in the data folder." }
+          Start-Process -FilePath "$app\unins000.exe" -Wait -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES")
+          # The uninstaller copies itself away and returns early: poll for up to 60 s.
+          $deadline = (Get-Date).AddSeconds(60)
+          while (((Test-Path $app) -or (Test-Path $data)) -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+          }
+          if ((Test-Path $app) -or (Test-Path $data)) {
+            Get-ChildItem $app, $data -Recurse -ErrorAction SilentlyContinue | ForEach-Object FullName
+            throw "Uninstall left files behind."
+          }
+      - name: Keep the installer log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: install-log
+          path: install.log
+          if-no-files-found: ignore
+
+  release:
+    # Only a pushed tag publishes; a manual run stops after install-test.
+    if: github.ref_type == 'tag'
+    needs: install-test
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: Create the release
+        run: >-
+          gh release create $env:GITHUB_REF_NAME
+          dist/GrimDawnBuildCheck-Setup.exe dist/SHA256SUMS.txt
+          --title "Grim Dawn Build Check $($env:GITHUB_REF_NAME.Substring(1)) (beta)"
+          --generate-notes

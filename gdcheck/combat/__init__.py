@@ -1,0 +1,1 @@
+"""gdcheck.combat layer."""

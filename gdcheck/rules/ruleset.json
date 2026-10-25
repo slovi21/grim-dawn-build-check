@@ -1,0 +1,46 @@
+{
+  "version": "R5",
+  "game_version": "1.3.0.8",
+  "sources": {
+    "onslaught": "grimdawn.com/guide/gameplay/combat - 'Each stack of Onslaught increases the cooldown skill's damage by 15%'",
+    "item_skills": "grimdawn.com/guide/character/item-skills - modifiers stack, auto-cast skills are separate instances",
+    "rr": "Crate forum 47174 + wiki example (type 1 additive, type 2 strongest %, type 3 strongest flat)",
+    "pth": "combatformulas.dbr probabilityToHitEquation; Game Guide Combat",
+    "kept_up": "requirements X-018 (closure 03.10.2026): steady state counts a maintained buff or enemy debuff in full when duration / cooldown >= 95%; partial uptime is shown apart",
+    "life_steal": "grimdawn.com/guide/gameplay/combat - gear life steal only on weapon attacks, scales with %WD up to 100%, direct damage only; skill life steal on all of the skill's direct damage",
+    "frame_rounding": "rounding up given N-1 played frames TESTED (.57): Crate forum 153788 (19 keyframes at 200%: ~3.7/s = 8 frames; nearest 7 = 4.29/s) and the user video of 02.10.2026 (Feral Claws 27 keyframes at 227%: 340 +- 3 ms = 10 frames); the report shows the rule pairs still open (playback N) as the span",
+    "by_version": "R5 (.53): rules that change with a game version - a block applies from its 'since' version on (compared as numbers, oldest first); '_status' ASSUMED = values from a playtest, named in the report until confirmed by the live patch notes",
+    "anim_playback": "Zantai (Crate staff, forum 99960, 2020): 'A basic attack animation is 18 frames before various modifiers', 'Belgothian's Shears and Amarasta's Quick Cut are both 28 frames before modifiers' - the 1.3.0.8 .anm headers hold 19 and 29 keyframes; N keyframes (frames 0..N-1) = N-1 frame steps; long animations hold 601/721/961/1201 keyframes. 'n-1' (default) plays header - 1, 'n' the header as is (the FoA values)",
+    "order_of_defense": "grimdawn.com/guide/gameplay/combat - Fumble/Dodge/Deflection, OA vs DA, Shield, % Reduced Damage from Monster Types, Resistances, Armor, Reduced Damage from Monster Types, % Damage Absorption, Damage Absorption",
+    "design": "build design (.67): level budgets from playerlevels.dbr skillModifierPoints/characterModifierPoints/maxDevotionPoints (EXACT); quest rewards community (ASSUMED); tier levels gameengine.dbr skillMasteryTierLevel (EXACT)"
+  },
+  "onslaught_per_stack": 0.15,
+  "frame_rounding": "up",
+  "anim_playback": "n-1",
+  "by_version": {
+    "1.3.1": {
+      "onslaught_per_stack": 0.12,
+      "_status": "ASSUMED",
+      "_source": "Grim Dawn v1.3.1 public playtest changelog (Crate forum 160053, 18.09.2026): Onslaught 12% per stack instead of 15% - confirm with the live patch notes"
+    }
+  },
+  "resist_base_cap": 80.0,
+  "resist_hard_cap": 95.0,
+  "monster_resist_cap": 100.0,
+  "absorption_base": 70.0,
+  "absorption_max": 100.0,
+  "pth_min": 55.0,
+  "crit_tiers": [[90, 1.1], [105, 1.2], [120, 1.3], [130, 1.4], [135, 1.5]],
+  "hit_zones": {"Chest": 0.26, "Legs": 0.20, "Head": 0.15, "Shoulders": 0.15, "Hands": 0.12, "Feet": 0.12},
+  "kept_up_threshold": 0.95,
+  "speed_caps_fallback": {"attack": 200.0, "cast": 200.0, "run": 135.0},
+  "attribute_defaults": {
+    "base_attribute": 50.0, "per_point": 8.0,
+    "life_per_physique": 2.5, "life_per_cunning": 1.0, "life_per_spirit": 1.5,
+    "mana_per_spirit": 2.0, "base_life": 250.0, "base_mana": 250.0,
+    "base_da": 65.0, "base_oa": 65.0, "per_level_ability": 12.0,
+    "ability_per_attribute": 0.5, "ability_constant": 53.0
+  },
+  "design": {"quest_skill_points": 11, "quest_attribute_points": 8, "_status": "ASSUMED",
+             "_source": "community count of quest rewards with Forgotten Gods (Steam discussion 1647665620932449852: 248 skill and 107 attribute points at level 100) minus the level points of playerlevels.dbr; not rechecked for Fangs of Asterkarn"}
+}
