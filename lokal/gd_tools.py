@@ -44,6 +44,7 @@ HERE = Path(__file__).resolve().parent
 # the launcher behaves exactly as it always did (GD-Tools.bat, ClaudeSkill.zip).
 PRODUCT = os.environ.get("GDCHECK_PRODUCT") == "1"
 PRODUCT_NAME = "Grim Dawn Build Check"            # = gdcheck.app.product.NAME (a test keeps them equal)
+LAUNCHER = PRODUCT_NAME if PRODUCT else "GD-Tools"   # what the hints call the program the player starts
 # The bundled embeddable Python runs isolated and ignores PYTHON* variables, so UTF-8 mode and unbuffered
 # output go on the command line (before -m); kind_env() sets the same through the environment.
 PY_FLAGS = ("-X", "utf8", "-u") if PRODUCT else ()
@@ -614,29 +615,30 @@ def log_is_stale(gd: Path, log: Path) -> bool:
     return changed is not None and written < changed
 
 
-def version_bestimmen(gd: Path, vorgabe: str | None, cfg: dict) -> tuple[str | None, str | None]:
-    """(version, source) of the installed game and the matching entry in cfg. Order: command line > log.html
-    (only while it is not older than the game files) > the version in the exe (when plausible, first number
-    above 0) > the stale log.html with a warning (not stored: it is not confirmed) > the saved version."""
+def version_bestimmen(gd: Path, vorgabe: str | None, cfg: dict) -> tuple[str | None, str | None, bool]:
+    """(version, source, confirmed) of the installed game and the matching entry in cfg. Order: command line >
+    log.html (only while it is not older than the game files) > the version in the exe (when plausible, first
+    number above 0) > the stale log.html with a warning (not stored, and the only unconfirmed result) > the
+    saved version."""
     if vorgabe:
-        return vorgabe, "command line"
+        return vorgabe, "command line", True
     aus_log = log_version(gd)
     if aus_log:
         version, datei = aus_log
         quelle = f"log.html ({datei.parent})"
         if not log_is_stale(gd, datei):
             cfg["version"] = version
-            return version, quelle
+            return version, quelle, True
         exe = exe_version(gd)
         if exe and exe.split(".")[0].isdigit() and int(exe.split(".")[0]) > 0:
             cfg["version"] = exe
-            return exe, "Grim Dawn.exe (log.html is older than the game files)"
+            return exe, "Grim Dawn.exe (log.html is older than the game files)", True
         warn("log.html is older than the game files - the version label may be outdated. "
              "Start Grim Dawn once to refresh it.")
-        return version, quelle + ", older than the game files"
+        return version, quelle + ", older than the game files", False
     if cfg.get("version"):
-        return cfg["version"], f"saved in {SETTINGS.name}"
-    return None, None
+        return cfg["version"], f"saved in {SETTINGS.name}", True
+    return None, None, True
 
 
 def steam_status(gd) -> dict | None:
@@ -911,6 +913,8 @@ def build_pruefen(state, char, safe, stamp) -> None:
             "--profile", (state.get("profile") or {}).get(char["name"], "general")]
     if index_status(state)[0] == "aktuell":
         args += ["--installed-fingerprint", index_meta(indizes[-1]).get("fingerprint", "")]
+    if state.get("version_confirmed") is False:     # a stale log.html names the label: the report says so
+        args.append("--version-unconfirmed")
     if run_module("gdcheck", args, tee=befund) == 0:
         ok(f"Build report: {bericht}")
         uebersicht_zeigen(befund)
@@ -958,6 +962,8 @@ def index_status(state) -> tuple[str, str]:
 
 
 def action_index(state, still=False):
+    """Build the game data index. True = rebuilt, False = the index build failed, None = not started (Steam is
+    still updating)."""
     if not still:
         head("Build game data index")
         zustand, text = index_status(state)
@@ -975,14 +981,14 @@ def action_index(state, still=False):
     steam = steam_status(state["gd"]) or {}
     if steam.get("updating"):
         warn("Steam is still updating Grim Dawn - the index is not rebuilt now.")
-        print("           Start GD-Tools again when the update is finished (Steam: Grim Dawn 'Play').")
+        print(f"           Start {LAUNCHER} again when the update is finished (Steam: Grim Dawn 'Play').")
         return
     vorher = index_sichern()
     args = ["--gd-dir", str(state["gd"]), "--lang", state["lang"], "--out", str(OUT)]
     if state["version"]:
         args = ["--version", state["version"]] + args
     if run_module("gdcheck.app.index_build", args) != 0:
-        return
+        return False
     neu = index_dateien()
     if neu:
         d = max(neu, key=lambda p: p.stat().st_mtime)
@@ -993,6 +999,7 @@ def action_index(state, still=False):
         state["index_fingerprint"] = index_meta(d).get("fingerprint")
         alt = index_aufraeumen(d, vorher)
         nach_index_bau(state, alt, d, steam)
+    return True
 
 
 PREVIOUS = OUT / "previous"
@@ -1121,7 +1128,7 @@ def nach_index_bau(state, alt: Path | None, neu: Path, steam: dict | None = None
     if not label_ok:
         warn(f"The game data changed, but the version label is still {ver} (the game has not run since the "
              "update, log.html is old).")
-        print("           Start Grim Dawn once (the main menu is enough), close it, then GD-Tools Extras 2.")
+        print(f"           Start Grim Dawn once (the main menu is enough), close it, then start {LAUNCHER} again.")
     if steam.get("branch", "public") != "public":
         warn(f"Steam branch '{steam['branch']}' (beta/playtest) - the results are for that branch only.")
     if fp and not referenzen_vorhanden(fp):
@@ -1175,7 +1182,7 @@ def action_patch_bericht(state) -> None:
     alt = next((q for q in alte if index_meta(q).get("fingerprint") != fp), None)
     if not neu or not alt:
         warn("No index of older game data kept yet (out\\previous\\) - normal until the first game patch: "
-             "GD-Tools keeps the old index when it rebuilds after a patch, from then on this report works.")
+             f"{LAUNCHER} keeps the old index when it rebuilds after a patch, from then on this report works.")
         return
     patch_bericht(state, alt, neu)
 
@@ -1494,7 +1501,8 @@ def einrichtung(state, cfg):
     cfg["eingerichtet"] = True
     einstellungen_speichern(cfg)
     print()
-    ok("Setup complete. From now on the script starts right away.")
+    ok("Setup complete. From now on it goes straight to the evaluation." if PRODUCT
+       else "Setup complete. From now on the script starts right away.")
 
 
 def save_ordner_festlegen(state, cfg) -> bool:
@@ -1685,12 +1693,53 @@ def mechanik_pruefen(state) -> None:
            + (f", page version {sv}" if sv else "") + ").")
 
 
+def _relabel_marker(version: str) -> Path:
+    return OUT / f"relabel-{version}.failed"
+
+
+def relabel_gesperrt(version: str) -> bool:
+    """A relabel rebuild to this version failed with this app version already: no retry at every start (it
+    costs minutes), only after an update (same rule as the refs-<version>.failed marker)."""
+    try:
+        m = _relabel_marker(version)
+        return m.exists() and f"skill {skill_version()}" in m.read_text(encoding="utf-8")
+    except OSError:
+        return True
+
+
+def relabel_bauen(state) -> None:
+    """Rebuild the index under the confirmed version label; remember a failure for this app version."""
+    version = state["version"]
+    ok(f"Game version now confirmed as {version} - updating the game data label.")
+    erfolg = action_index(state, still=True)        # the reference files are found by fingerprint, not label
+    marker = _relabel_marker(version)
+    try:
+        if erfolg is False:
+            OUT.mkdir(parents=True, exist_ok=True)
+            marker.write_text(f"relabel failed\nskill {skill_version()}\n", encoding="utf-8")
+        elif erfolg is True and marker.exists():
+            marker.unlink()
+    except OSError:
+        pass
+
+
+def _label_veraltet(state, meta: dict) -> bool:
+    """The version is confirmed (fresh log.html, plausible exe or command line) and differs from the label of
+    the index that belongs to this installation (same fingerprint): the data are right, only the label is old."""
+    version, fp = state.get("version"), state.get("fingerprint")
+    return bool(state.get("version_confirmed") and version and fp and meta.get("fingerprint") == fp
+                and meta.get("game_version") != version)
+
+
 def index_pflegen(state, cfg) -> None:
     """Index automatisch auf Stand bringen und den Nutzer informieren."""
     zustand, text = index_status(state)
     if zustand == "aktuell":
         ok(f"Game data index up to date ({Path(text.split()[0]).name}).")
         d = index_dateien()
+        if d and _label_veraltet(state, index_meta(d[-1])) and not relabel_gesperrt(state["version"]):
+            relabel_bauen(state)
+            d = index_dateien()
         ver = (index_meta(d[-1]).get("game_version") if d else None) or state.get("version")
         fp = str(index_meta(d[-1]).get("fingerprint") or "") if d else ""
         if fp and not referenzen_vorhanden(fp):       # the public installer ships no reference data
@@ -1888,7 +1937,7 @@ def main(argv=None):
         print(treffer[0]["gdc"])
         return 0
 
-    head("Grim Dawn Tools")
+    head(PRODUCT_NAME if PRODUCT else "Grim Dawn Tools")
     if not PRODUCT:                         # migrations of the ClaudeSkill.zip layout; the installer has none
         umgezogen = daten_umziehen()
         if umgezogen:
@@ -1921,7 +1970,7 @@ def main(argv=None):
     GD_DIR = gd
 
     build = steam_buildid(gd)
-    version, quelle = version_bestimmen(gd, args.game_version, cfg)
+    version, quelle, bestaetigt = version_bestimmen(gd, args.game_version, cfg)
     if version:
         ok(f"Game version: {version}   (source: {quelle})")
     else:
@@ -1940,7 +1989,7 @@ def main(argv=None):
 
     state = {"gd": gd, "version": version, "lang": args.lang,
              "savedir": args.save_dir or cfg.get("savedir"), "buildid": build,
-             "fingerprint": fingerprint, "profile": cfg.get("profile") or {}}
+             "fingerprint": fingerprint, "profile": cfg.get("profile") or {}, "version_confirmed": bestaetigt}
     OUT.mkdir(parents=True, exist_ok=True)
     if fingerprint:
         cfg["fingerprint"] = fingerprint
@@ -1963,7 +2012,7 @@ def main(argv=None):
                        if args.char.lower() in c["name"].lower()]
             if not treffer:
                 bad(f"No character contains '{args.char}'.")
-                print("           Check the spelling or start GD-Tools without --char to pick from the list.")
+                print(f"           Check the spelling or start {LAUNCHER} without --char to pick from the list.")
                 return 1
             cfg["letzter_charakter"] = treffer[0]["name"]
             einstellungen_speichern(cfg)
@@ -1980,7 +2029,7 @@ def main(argv=None):
         except (KeyboardInterrupt, EOFError):
             raise
         except Exception as e:              # noqa: BLE001 - one failed action never ends the menu
-            problem(e, "GD-Tools")
+            problem(e, LAUNCHER)
             print("  The menu continues - the other functions still work.")
             continue
         if name:
@@ -2008,7 +2057,7 @@ def hauptprogramm(argv=None) -> int:
     except SystemExit:
         raise
     except BaseException as e:              # noqa: BLE001
-        return problem(e, "GD-Tools")
+        return problem(e, LAUNCHER)
 
 
 if __name__ == "__main__":

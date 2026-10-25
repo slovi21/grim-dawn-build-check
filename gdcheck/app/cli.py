@@ -45,6 +45,8 @@ def parse(argv):
     ap.add_argument("--live-version", help="live patch found by a web check, e.g. 1.3.0.8")
     ap.add_argument("--live-checked", help="date of that check, e.g. 2026-10-01")
     ap.add_argument("--installed-fingerprint", help="fingerprint of the local game data (GD-Tools)")
+    ap.add_argument("--version-unconfirmed", action="store_true",
+                    help="the game version label could not be confirmed (GD-Tools: log.html older than the game)")
     ap.add_argument("--onslaught", type=int, help="Onslaught stacks for cooldown skills (default 0)")
     ap.add_argument("--boss-level", type=int, help="monster level for the boss combat check "
                     "(default: highest level of your greatest monsters killed)")
@@ -160,15 +162,16 @@ def overview(a, env) -> int:
         return EXIT_SAVE
     idx = Path(a.index) if a.index else env.index
     if idx is None:
-        print("No game data index found.\n  What you can do: start GD-Tools once (it builds the index).",
-              file=sys.stderr)
+        print(f"No game data index found.\n  What you can do: start {product.launcher_name()} once "
+              "(it builds the index).", file=sys.stderr)
         return EXIT_INDEX
     saves = [c.gdc for c in chars]
     with local_run(env):
         try:
             cache = OV.evaluate(saves, idx, {})
         except IndexError_ as ex:
-            print(f"{ex}\n  What you can do: rebuild the game data index (GD-Tools -> Extras 2).", file=sys.stderr)
+            print(f"{ex}\n  What you can do: rebuild the game data index ({product.launcher_name()} -> Extras 2).",
+                  file=sys.stderr)
             return EXIT_INDEX
     print(f"Local mode ({env.mode}): {len(saves)} characters, index {idx.name} ({env.index_state})")
     print("\n".join(OV.overview_lines(saves, cache)))
@@ -180,8 +183,8 @@ def check(a, gdc: Path, env=None) -> int:
         gdc = gdc / "player.gdc"
     if not gdc.exists():
         print(f"Savefile not found: {gdc}\n  What you can do: check the path (the character folder contains "
-              "player.gdc); in GD-Tools pick the character again or set the save folder (Extras 11).",
-              file=sys.stderr)
+              f"player.gdc); in {product.launcher_name()} pick the character again or set the save folder "
+              "(Extras 11).", file=sys.stderr)
         return EXIT_SAVE
     fingerprint = a.installed_fingerprint or (env.fingerprint if env is not None else None)
     if a.index:
@@ -191,19 +194,20 @@ def check(a, gdc: Path, env=None) -> int:
     else:
         idx_path = PL.default_index(fingerprint)
     if idx_path is None:
-        print("No game data index found.\n  What you can do: start GD-Tools - it builds the index of your "
-              "installation (a few minutes) - or pass --index.", file=sys.stderr)
+        print(f"No game data index found.\n  What you can do: start {product.launcher_name()} - it builds the "
+              "index of your installation (a few minutes) - or pass --index.", file=sys.stderr)
         return EXIT_INDEX
     try:
         index = PL.load_index(idx_path)
     except IndexError_ as ex:
-        print(f"{ex}\n  What you can do: rebuild the game data index (GD-Tools -> Extras 2), then try again.",
-              file=sys.stderr)
+        print(f"{ex}\n  What you can do: rebuild the game data index ({product.launcher_name()} -> Extras 2), "
+              "then try again.", file=sys.stderr)
         return EXIT_INDEX
     opts = Options(profile=ContentProfile(a.profile), hardcore=a.hardcore,
                    difficulty={"normal": 0, "elite": 1, "ultimate": 2}.get(a.difficulty),
                    live_version=a.live_version, live_checked=a.live_checked,
-                   installed_fingerprint=fingerprint, onslaught=a.onslaught,
+                   installed_fingerprint=fingerprint, version_unconfirmed=a.version_unconfirmed,
+                   onslaught=a.onslaught,
                    boss_level=a.boss_level, action_rate=a.action_rate,
                    detail=a.detail)
     try:

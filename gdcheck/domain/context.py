@@ -56,6 +56,7 @@ class Options:
     live_version: str | None = None         # from Claude's web check
     live_checked: str | None = None         # date of that check
     installed_fingerprint: str | None = None  # GD-Tools: fingerprint of the local game data
+    version_unconfirmed: bool = False       # GD-Tools: the version label comes from a stale log.html
     onslaught: int | None = None            # Onslaught stacks for the spender (None = 0, worst case)
     boss_level: int | None = None           # monster level for boss values (None = player level, plan E3)
     action_rate: float | None = None        # actions per second override for DpS/sustain (None = from speed)

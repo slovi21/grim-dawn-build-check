@@ -55,6 +55,13 @@ def version_line(ctx, meta) -> tuple[str, list]:
     if st == LiveStatus.MATCHES_LIVE:
         txt = f"Game data {gv} - matches live patch {ctx.options.live_version}" + (
             f" (checked {ctx.options.live_checked})" if ctx.options.live_checked else "")
+    elif st == LiveStatus.MATCHES_INSTALLED and ctx.options.version_unconfirmed:
+        # the data are the installed ones, the label is not confirmed (stale log.html): it also picks the
+        # version-specific rules (effective_ruleset), so the player is told how to get it confirmed
+        txt = (f"Game data {gv} (version not confirmed - Grim Dawn has not run since its last update) "
+               "- built from your installed game")
+        warnings.append("The game version could not be confirmed. Start Grim Dawn once (the main menu is "
+                        "enough), then start the check again - it updates the game data by itself.")
     elif st == LiveStatus.MATCHES_INSTALLED:
         txt = f"Game data {gv} - matches your installed game"
     elif st == LiveStatus.MISMATCH:

@@ -26,6 +26,7 @@ from pathlib import Path
 from ..data.index import SUPPORTED_SCHEMA, IndexError_
 from ..domain.context import Options
 from . import pipeline as PL
+from . import product
 from .local_env import index_meta
 
 EXIT_INDEX = 3                          # as cli.EXIT_INDEX
@@ -215,11 +216,12 @@ def _load(path, which: str):
         return PL.load_index(Path(path))
     except IndexError_ as ex:
         schema = index_meta(Path(path)).get("schema", "?")
+        tool = product.launcher_name()
         what = (f"Patch report skipped: the index of the {which} game data ({Path(path).name}) has schema {schema}, "
                 f"this version reads schema {SUPPORTED_SCHEMA}.\n  What you can do: ")
         raise IndexError_(what + ("nothing for this update - an index of old game data is not rebuilt. The next patch "
-                                  "is compared again (GD-Tools renews the kept copy)." if which == "old"
-                                  else f"rebuild the index with GD-Tools. ({ex})")) from ex
+                                  f"is compared again ({tool} renews the kept copy)." if which == "old"
+                                  else f"rebuild the index with {tool}. ({ex})")) from ex
 
 
 def main(argv=None) -> int:

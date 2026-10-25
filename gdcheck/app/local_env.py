@@ -897,7 +897,11 @@ def _game_version(places, settings: dict, index) -> tuple:
 
 def _notes(mode, game, chars, index, state, fingerprint) -> list[str]:
     notes = []
+    pro, tool = product.enabled(), product.launcher_name()
     if mode == "none" and not chars:
+        if pro:                                     # the player starts the app: no chat agent to ask
+            return [f"No Grim Dawn installation or save folder found on this PC. Start Grim Dawn once, or enter "
+                    f"the folders when {product.NAME} asks for them."]
         return ["no Grim Dawn folders found on this machine - ask the player to upload player.gdc "
                 "(save\\main\\_<Name>\\player.gdc) or, in Cowork, to connect the Grim Dawn save folder"]
     if game is None:
@@ -905,13 +909,15 @@ def _notes(mode, game, chars, index, state, fingerprint) -> list[str]:
         notes.append(f"{where} - item values come from "
                      + (f"{Path(index).name} (not checked against the installation)" if index else "no index"))
     if not chars:
-        notes.append("no characters found (no player.gdc below the save folders) - connect or name the save "
+        notes.append(f"No characters found. Set the save folder in {product.NAME} (Extras 11) - usually "
+                     "Documents\\My Games\\Grim Dawn\\save." if pro else
+                     "no characters found (no player.gdc below the save folders) - connect or name the save "
                      "folder (Documents\\My Games\\Grim Dawn\\save)")
     if state == "stale":
         notes.append(f"index {Path(index).name} is from other game data (installed {fingerprint}) - start "
-                     "GD-Tools once to rebuild it; item values may be outdated")
+                     f"{tool} once to rebuild it; item values may be outdated")
     elif state == "missing":
-        notes.append("no game data index - start GD-Tools once (it builds the index)")
+        notes.append(f"no game data index - start {tool} once (it builds the index)")
     dups = {}
     for c in chars:
         dups.setdefault(c.name.lower(), []).append(c)
@@ -961,6 +967,6 @@ def describe(env: LocalEnv) -> str:
     if env.notes:
         lines.append("Notes:")
         lines += [f"  - {n}" for n in env.notes]
-    if env.characters:
+    if env.characters and not product.enabled():        # a command line for the chat agent, not for the player
         lines.append('Next: python -m gdcheck --character "<name>" --md player   |   python -m gdcheck --all')
     return "\n".join(lines) + "\n"

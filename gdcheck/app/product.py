@@ -16,6 +16,8 @@ _AGAIN = INSTALLER_AGAIN
 _AGAIN_MID = f"run the {NAME} installer again (your data stays)"
 _REPORT_MID = f"open an issue at {ISSUES_URL} and attach"
 _REPORT_FIRST = f"Open an issue at {ISSUES_URL} and attach"
+_INDEX_FIX = f"{NAME} -> Extras 2 (rebuild game data index), then try again."
+_SETUP_FIX = f"{NAME} -> Extras 9 (run setup again) and choose the Grim Dawn folder."
 
 # Replacements for the entries of errors.TEXTS / EXIT_TEXTS / TOOL_EXIT_TEXTS that name Claude, same keys
 # and tuple layout (title, cause, what to do). tests/unit/test_product_mode.py keeps the sets in step.
@@ -45,6 +47,10 @@ TEXTS: dict[str, tuple[str, str, str]] = {
              "at that moment.",
              f"Close Grim Dawn (or wait until the character is saved) and start again. If it stays, {_REPORT_MID} "
              "the log file."),
+    "missing": ("A file or folder was not found", "The program needed a file that does not exist (moved, "
+                "deleted or not created yet).",
+                "Check the path in the line 'Technical' below. Game data index missing: "
+                f"{NAME} builds it at the next start (or Extras 2)."),
     "install": ("A part of the program is missing", f"{NAME} is incomplete or mixed from two versions.",
                 f"{_AGAIN}."),
     "damaged": ("A data file is damaged or incomplete", "A file could not be decoded - it was probably cut "
@@ -70,14 +76,20 @@ EXIT_TEXTS: dict[int, tuple[str, str, str]] = {
 }
 
 # Per tool (key = errors.tool_name): codes with a meaning of their own; optional 4th entry = label
+_INDEX_TEXT = ("Game data index missing or not usable", "The tools need the game data index of your installation.",
+               _INDEX_FIX)
 TOOL_EXIT_TEXTS: dict[str, dict[int, tuple[str, ...]]] = {
     "build check": {
+        3: _INDEX_TEXT,
         4: ("A result file could not be written, or a file of the tools is damaged",
             "Either the report file is open in another program / the folder is read-only, or a file of "
             "the tools is damaged - the lines above say which.",
             f"Follow the 'What you can do' line above (close the report, or {_AGAIN_MID})."),
     },
+    "overview": {3: _INDEX_TEXT},
     "animation frames": {
+        2: ("Not a Grim Dawn installation folder", f"The folder set in {NAME} has no resources\\ folder.",
+            _SETUP_FIX),
         3: ("Animation frames not read - nothing is broken",
             "Some game files are built differently than the tool expects; nothing was changed. The build "
             "check keeps using the community and default frames.",
@@ -85,6 +97,7 @@ TOOL_EXIT_TEXTS: dict[str, dict[int, tuple[str, ...]]] = {
             "again by itself.", "NOTE"),
     },
     "reference data": {
+        2: ("Game database not found", f"The folder set in {NAME} has no database\\database.arz.", _SETUP_FIX),
         3: ("Part of the reference data not read - nothing is broken",
             "The animation tables or the boss data of the new game version could not be read; the check uses "
             "the data of the last known version and marks it ASSUMED.",
@@ -98,3 +111,8 @@ UNKNOWN_EXIT_FIX = f"{_REPORT_FIRST} this window's text."
 
 def enabled() -> bool:
     return os.environ.get(ENV_FLAG) == "1"
+
+
+def launcher_name() -> str:
+    """The program the player starts, as the hints call it: GD-Tools for skill users, the product name here."""
+    return NAME if enabled() else "GD-Tools"
