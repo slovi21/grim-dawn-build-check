@@ -197,7 +197,7 @@ def worth_it(base: Baseline, cmp) -> bool:
 
 def _resist_deeper(base: Baseline, ctx2, snap2, margin: float = 0.5) -> set:
     """Count targets (res_ultimate, res_own_cap) hide a single resistance that drops further while
-    already below its target - the count stays the same. .62 (product review of .61: Cpt Slovi's
+    already below its target - the count stays the same. .62 (product review of .61: a test save's
     mask swap cost Aether -27 with Aether already below the cap): such a change breaks the target."""
     from .. import stage as STG
     out = set()

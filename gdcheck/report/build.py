@@ -145,8 +145,8 @@ def _below_cap(detail: str) -> tuple[str, str, str] | None:
 
 
 def _penalty_why(detail: str) -> str:
-    """The reason of a self-penalty (.75, N-011: at most 25 words like every reason; it was the whole detail, 36 words for Cpt
-    Slovi): what falls below the cap comes first, so the cut never drops it, then the causes; the 'while the effect is
+    """The reason of a self-penalty (.75, N-011: at most 25 words like every reason; it was the whole detail, 36 words for one
+    test character): what falls below the cap comes first, so the cut never drops it, then the causes; the 'while the effect is
     active' lead stays in the title line, the full text in D1 and the Expert View."""
     below = _below_cap(detail)
     if below is None:
@@ -159,7 +159,7 @@ def _penalty_why(detail: str) -> str:
 
 
 def _penalty_short(detail: str) -> str:
-    """Self-penalty line for the Player View (.62, N-011: Cpt Slovi's was 55 words): when it pushes
+    """Self-penalty line for the Player View (.62, N-011: one test character's was 55 words): when it pushes
     resistances below the cap, only those (equal changes grouped) plus Physical; the full text stays in
     the reason and in D1."""
     below = _below_cap(detail)
@@ -297,7 +297,7 @@ BOSS_LEGEND = ("Risk: HIGH = a resistance more than 10 short or 3+ weak spots; M
 
 def boss_fights(a) -> dict:
     """Boss name -> fight key (B2): forms and phases of one fight share the key. The link is the boss
-    data's spawn-on-death chain ('phases', data.boss_graph), never the name - Cpt Slovi: 'The Final
+    data's spawn-on-death chain ('phases', data.boss_graph), never the name - a test save: 'The Final
     Form ...' and 'The Actually Final Form ...' are one fight. Bosses without data: their own key."""
     try:
         from ..data import bosses as BD
@@ -716,7 +716,7 @@ def e7(a) -> Table:
     notes = []
     risk_lines = [f"{c.boss.split(',')[0]}: {c.risk} combat risk (HEURISTIC) - "
                   + ("; ".join(c.reasons) if c.reasons else "no modelled weakness") for c in a.combat_checks]
-    if risk_lines:                                   # one paragraph (.61: expert view <= 150 lines, Cpt Slovi)
+    if risk_lines:                                   # one paragraph (.61: expert view <= 150 lines, one test character)
         notes.append(" | ".join(risk_lines))
     notes += _e7_sources(a)
     if a.combat_checks:
