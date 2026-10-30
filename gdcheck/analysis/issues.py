@@ -19,11 +19,12 @@ class Issue:
     fix: str
     check_in_game: str
     self_penalty: bool = False
+    subject: str = ""          # report v2: the record the issue is about (see Finding.subject)
 
 
 def _from_finding(f) -> Issue:
     return Issue(f.code, f.category, f.severity, f.title, f.detail, f.evidence, f.fix,
-                 f.check_in_game, self_penalty=f.code.startswith("C1"))
+                 f.check_in_game, self_penalty=f.code.startswith("C1"), subject=f.subject)
 
 
 def rule_findings(ctx, snap) -> list:

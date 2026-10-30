@@ -13,16 +13,38 @@ from . import index_cache
 from .text import FACTION_FALLBACK_NAMES, FACTION_SLOT_KEYS, clean_text, ist_wertname, short
 
 SUPPORTED_SCHEMA = 9
+# The most an index of the online check may be once unpacked. The web index of the golden game data is 33.0 MB (31.4 MiB;
+# the whole index, with the loot tables, 130 MiB and never online): 128 MiB leaves room to grow and stops a small file
+# that unpacks to gigabytes (a gzip bomb with matching checksums) before it is parsed.
+MAX_INDEX_UNPACKED = 128 * 1024 * 1024
 
 
 class IndexError_(Exception):
     """Index missing, unreadable or of an unsupported schema."""
 
 
-def read_json(path: Path) -> dict:
+class SchemaError(IndexError_):
+    """The index is whole but of another schema than this engine reads (the web entry says "updating" to that)."""
+
+
+def read_json(path: Path, max_bytes: int | None = None) -> dict:
+    """The parsed index. With `max_bytes` the unpacked JSON may not be longer than that (IndexError_ otherwise): at most
+    max_bytes + 1 bytes are ever unpacked (in blocks of 1 MiB, so the memory held stays near the limit), so a small file
+    that expands to gigabytes is refused before it is parsed."""
     try:
-        with gzip.open(path, "rt", encoding="utf-8") as fh:
-            return json.load(fh)
+        if max_bytes is None:
+            with gzip.open(path, "rt", encoding="utf-8") as fh:
+                return json.load(fh)
+        raw = bytearray()
+        with gzip.open(path, "rb") as fh:
+            while len(raw) <= max_bytes:
+                block = fh.read(min(1 << 20, max_bytes + 1 - len(raw)))
+                if not block:
+                    break
+                raw += block
+        if len(raw) > max_bytes:
+            raise IndexError_(f"index is larger than {max_bytes:,} bytes unpacked: {path}")
+        return json.loads(raw.decode("utf-8"))
     except (OSError, ValueError, EOFError) as ex:
         raise IndexError_(f"index could not be read: {path} ({ex})") from ex
 
@@ -249,26 +271,29 @@ class GameIndex:
     table = tabelle
 
     @classmethod
-    def load(cls, path, cache: bytes | None = None) -> tuple["GameIndex", bytes | None]:
+    def load(cls, path, cache: bytes | None = None, make_cache: bool = True,
+             max_bytes: int | None = None) -> tuple["GameIndex", bytes | None]:
         """(index, new cache bytes or None). Pass the bytes of an existing cache
         file; if they do not match the index, the JSON is read and fresh cache
-        bytes are returned for the caller to store."""
+        bytes are returned for the caller to store. With make_cache=False no
+        cache is built (the browser keeps none): the second item is None. With
+        max_bytes the JSON read from the file may not be longer unpacked (IndexError_)."""
         path = Path(path)
         if not path.exists():
             raise IndexError_(f"index not found: {path}")
-        key = index_cache.key(path)
+        key = index_cache.key(path) if (cache is not None or make_cache) else None      # the key hashes the whole file
         if cache is not None:
             hit = index_cache.loads(cache, key)
             if hit is not None:
                 core, loaders = hit
                 return cls._checked(path, core, loaders), None
-        data = read_json(path)
-        return cls._checked(path, data), index_cache.dumps(data, key)
+        data = read_json(path, max_bytes)
+        return cls._checked(path, data), (index_cache.dumps(data, key) if make_cache else None)
 
     @classmethod
     def _checked(cls, path, data, loaders=None):
         idx = cls(path, data, loaders)
         if idx.schema != SUPPORTED_SCHEMA:
-            raise IndexError_(f"index schema {idx.schema} not supported (need {SUPPORTED_SCHEMA}); "
+            raise SchemaError(f"index schema {idx.schema} not supported (need {SUPPORTED_SCHEMA}); "
                               "rebuild it with GD-Tools")
         return idx

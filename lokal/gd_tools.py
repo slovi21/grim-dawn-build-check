@@ -911,6 +911,8 @@ def build_pruefen(state, char, safe, stamp) -> None:
     args = [str(char["gdc"]), "--index", str(indizes[-1]), "--html", str(bericht),
             "--mechanics-link", link, "--text", "player,expert",
             "--profile", (state.get("profile") or {}).get(char["name"], "general")]
+    if PRODUCT:                             # E1: the installer's report includes the attribute, skill point, devotion and reroll suggestions (~4.5 s)
+        args.append("--detail")
     if index_status(state)[0] == "aktuell":
         args += ["--installed-fingerprint", index_meta(indizes[-1]).get("fingerprint", "")]
     if state.get("version_confirmed") is False:     # a stale log.html names the label: the report says so
@@ -924,7 +926,7 @@ def build_pruefen(state, char, safe, stamp) -> None:
         except Exception:                   # Browser ist Komfort, kein Muss
             pass
     else:
-        warn(f"Build report failed, output is in {befund}")
+        warn(f"Build report failed. Output and error text are in {befund}")
     kopie = OUT / f"{safe}-{stamp}.gdc"
     try:
         shutil.copy2(char["gdc"], kopie)

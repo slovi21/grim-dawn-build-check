@@ -70,15 +70,17 @@ def proposals(base, score, generator_override=None) -> list[Proposal]:
                 pts[b] = pts.get(b, 0) + m["points"]
                 change[a], change[b] = pts[a], pts[b]
         if change:
-            ctx2, _, snap2 = CF.snapshot_for(base, CF.with_skills(base.ctx.character, change))
-            cmp = CF.compare(base, ctx2, snap2)
+            ctx2, src2, snap2 = CF.snapshot_for(base, CF.with_skills(base.ctx.character, change))
+            cmp = CF.compare(base, ctx2, snap2, src2=src2)
             text = "; ".join(f"{m['points']} pt {m['from']} -> {m['to']}" for m in moves[:4])
             out.append(Proposal("skills:moves", "skills", "Skills", "Move skill points", text,
                                 cmp["gains"], cmp["costs"], cmp["fixes"], cmp["breaks"],
                                 "LOW" if not cmp["fixes"] else "MEDIUM", "low",
                                 explain=("respec at the Spirit Guide", "skills without a damage model "
                                          "(attacks, procs) are valued by their own flat damage only"),
-                                score=cmp["score"], detail={"target": "skills", "moves": moves[:4]}))
+                                score=cmp["score"], detail={"target": "skills", "moves": moves[:4],
+                                                          **CF.annotate(cmp),
+                                                          "apply": (("skills", tuple(sorted(change.items()))),)}))
     # devotions: plan A (and B)
     dv = raw.get("devotions") or {}
     sb = None
@@ -94,8 +96,8 @@ def proposals(base, score, generator_override=None) -> list[Proposal]:
         for k in plan.get("in") or []:
             for star in (sb.get(k) or {}).get("stars", []):
                 change[star] = 1
-        ctx2, _, snap2 = CF.snapshot_for(base, CF.with_skills(base.ctx.character, change))
-        cmp = CF.compare(base, ctx2, snap2)
+        ctx2, src2, snap2 = CF.snapshot_for(base, CF.with_skills(base.ctx.character, change))
+        cmp = CF.compare(base, ctx2, snap2, src2=src2)
         nm = lambda k: (sb.get(k) or {}).get("name", k)  # noqa: E731
         text = f"Devotion plan {label}: out {', '.join(nm(k) for k in plan.get('out') or []) or '-'}; " \
                f"in {', '.join(nm(k) for k in plan.get('in') or []) or '-'}"
@@ -107,7 +109,8 @@ def proposals(base, score, generator_override=None) -> list[Proposal]:
                             explain=("full reset of the devotions at a shrine (costs Aether Crystals)",
                                      "build order in the detail view (D7)"),
                             score=cmp["score"], detail={"target": f"devotion{label}", "plan": plan,
-                                                        "lost_powers": tuple(lost)}))
+                                                        "lost_powers": tuple(lost), **CF.annotate(cmp),
+                                                        "apply": (("skills", tuple(sorted(change.items()))),)}))
     # attributes
     at = raw.get("attributes") or {}
     if at.get("worth_it") and at.get("best") and at.get("best") != at.get("current"):
@@ -115,14 +118,15 @@ def proposals(base, score, generator_override=None) -> list[Proposal]:
         per = base.ctx.attribute_constants.get("per_point", 8.0)
         for k in ("physique", "cunning", "spirit"):
             base_attr[k] = (base_attr.get(k) or 0) + (at["best"][k] - at["current"][k]) * per
-        ctx2, _, snap2 = CF.snapshot_for(base, CF.with_attributes(base.ctx.character, base_attr))
-        cmp = CF.compare(base, ctx2, snap2)
+        ctx2, src2, snap2 = CF.snapshot_for(base, CF.with_attributes(base.ctx.character, base_attr))
+        cmp = CF.compare(base, ctx2, snap2, src2=src2)
         b = at["best"]
         out.append(Proposal("attributes:best", "attributes", "Attributes", "Attribute points",
                             f"spread {b['physique']} Physique / {b['cunning']} Cunning / {b['spirit']} Spirit",
                             cmp["gains"], cmp["costs"], cmp["fixes"], cmp["breaks"], "LOW", "medium",
                             explain=("needs a Tonic of Reshaping", "check Required Cunning/Spirit of worn items first"),
-                            score=cmp["score"], detail={"target": "attributes"}))
+                            score=cmp["score"], detail={"target": "attributes", **CF.annotate(cmp),
+                                                        "apply": (("attributes", tuple(sorted(base_attr.items()))),)}))
     out += reroll_proposals(base, raw)
     return out
 
@@ -182,9 +186,12 @@ def reroll_proposals(base, raw) -> list[Proposal]:
             continue
         best = r["candidates"][0]
         part = REROLL_PARTS[r["kind"]]
-        ctx2, _, snap2 = CF.snapshot_for(base, CF.with_item_part(base.ctx.character, r["slot"], part,
+        ctx2, src2, snap2 = CF.snapshot_for(base, CF.with_item_part(base.ctx.character, r["slot"], part,
                                                                  best["record"]))
-        cmp = CF.compare(base, ctx2, snap2)
+        idx, worn = base.ctx.index, base.ctx.character.worn_by_slot().get(r["slot"])
+        lost_rank = CF.rank_bonus_lost(CF.rank_bonuses(idx, [(worn.item if worn else {}).get(part)]),
+                                       CF.rank_bonuses(idx, [best["record"]]))
+        cmp = CF.compare(base, ctx2, snap2, src2=src2, unrated=lost_rank)
         if not CF.worth_it(base, cmp):
             continue
         out.append(Proposal(f"reroll:{r['slot']}:{part}", "reroll", "Gear", f"Reroll {r['affix']} ({r['slot']})",
@@ -198,5 +205,7 @@ def reroll_proposals(base, raw) -> list[Proposal]:
                                      "damage not recalculated"),
                             score=cmp["score"], detail={"target": f"reroll:{r['slot']}:{part}",
                                                         "slot_part": f"{r['slot']}:{part}",
-                                                        "expert_only": True}))
+                                                        "reroll_kind": r["kind"], "affix": r["affix"], "slot": r["slot"],
+                                                        "expert_only": True, **CF.annotate(cmp),
+                                                        "apply": (("item_part", r["slot"], part, best["record"]),)}))
     return out

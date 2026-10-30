@@ -1,0 +1,8 @@
+# The actions of the workflows are pinned to commit SHAs; this proposes the next release of each one every week (a pull
+# request that changes the SHA and the tag in the comment next to it).
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

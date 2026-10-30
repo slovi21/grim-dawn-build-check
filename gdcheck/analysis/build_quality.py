@@ -28,7 +28,7 @@ tables in report/build_tables.py.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..mechanics.policy import Confidence, rule
 from . import generators as GEN
@@ -40,6 +40,8 @@ RISK_FROM = 5.0         # wasted value points from which the status is RISK
 GAP_FROM = 15.0         # ... and GAP
 ATTACKS_HIGH_FROM = 1 / 3   # share of the skill points in attacks and spells (not rated) from which the text says so
 NO_VALUE = 0.005        # a rated skill whose last and next point are worth less than this has no modelled value
+UNSPENT_FROM = 5        # unspent points (attribute, skill or devotion) from which a part of the build is not "OK" and the
+                        # texts name them (decision 04.10.2026: five)
 
 
 @rule("build_quality", Confidence.HEURISTIC,
@@ -104,6 +106,8 @@ class BuildQuality:
     unrated_points: int = 0     # ... of which not rated (attacks, spells, procs, no rank values)
     attack_points: int = 0      # ... of which attacks and spells (no DPS model)
     early: bool = False         # levelling (stage EARLY): the points are still being placed, not rated
+    free_skill_points: int = 0      # unspent skill points of the save
+    free_attribute_points: int = 0  # unspent attribute points of the save
 
     def wasted(self) -> float:
         return self.skill_gain + self.devotion_gain
@@ -133,6 +137,44 @@ class BuildQuality:
         if self.pet or self.early or self.error:
             return "INFO"
         return status_for(self.wasted_modelled())
+
+    def _part_status(self, gain: float) -> str:
+        """The status of one part: that of the whole when the part adds to the waste, else OK (INFO stays INFO)."""
+        whole = self.status()
+        return "OK" if whole != "INFO" and gain <= 0 else whole
+
+    def skills_waste_status(self) -> str:
+        """The status of the skill points by their waste alone: that of the whole rating when the modelled skill gain adds to
+        it. A move out of a skill the scale cannot value is no waste (see `wasted_modelled`). This is the reading of the
+        overview row (`area_text.build_text`: a part is named only while the whole is not OK)."""
+        return self._part_status(self.skill_gain - self.unvalued_gain())
+
+    def devotions_waste_status(self) -> str:
+        """The status of the devotions by their waste alone: that of the whole rating when the best swap adds to it."""
+        return self._part_status(self.devotion_gain)
+
+    @staticmethod
+    def _with_unspent(status: str, unspent: bool) -> str:
+        """Unspent points keep a part from reading OK: at least RISK (INFO stays INFO - nothing is rated then)."""
+        return "RISK" if unspent and status == "OK" else status
+
+    def skills_unspent(self) -> bool:
+        """Five or more skill points or five or more attribute points are unspent (`UNSPENT_FROM`)."""
+        return max(self.free_skill_points, self.free_attribute_points) >= UNSPENT_FROM
+
+    def devotions_unspent(self) -> bool:
+        """Five or more devotion points are unspent (`UNSPENT_FROM`)."""
+        return self.free_devotion_points >= UNSPENT_FROM
+
+    def skills_status(self) -> str:
+        """The status of the skill points alone (report v2: the Skills panel): the waste status, or RISK while five or more
+        skill or attribute points are unspent. The whole rating (`status`, the score, md and text) does not count them."""
+        return self._with_unspent(self.skills_waste_status(), self.skills_unspent())
+
+    def devotions_status(self) -> str:
+        """The status of the devotions alone (report v2: the Devotions panel): the waste status, or RISK while five or more
+        devotion points are unspent."""
+        return self._with_unspent(self.devotions_waste_status(), self.devotions_unspent())
 
     def attack_share(self) -> float:
         return self.attack_points / self.skill_points if self.skill_points else 0.0
@@ -247,16 +289,24 @@ def from_raw(raw: dict) -> BuildQuality:
                           if not e.get("rated") and e.get("effect") == EFFECT_SKILL_ONLY))
 
 
+def unspent_points(ctx) -> tuple[int, int, int]:
+    """(attribute, skill, devotion) points the save has not spent (the figures of the E1 finding)."""
+    progress = getattr(getattr(ctx, "character", None), "progress", None) or {}
+    return tuple(int(progress.get(k) or 0) for k in ("attribute_points", "skill_points", "devotion_points"))
+
+
 def assess(ctx, snap, results: dict, melee: bool, pet: bool = False, early: bool = False) -> BuildQuality:
     """Rate the skills and devotions of one analysed character. results: {id: TargetResult} (the stage targets
     the generators rate against); melee: the archetype; pet: a pet build is not rated (INFO); early: a levelling
     character (stage EARLY) is not rated either (INFO) - its points are still being placed, 55 free devotion points
     are not a gap. Neither runs a generator. A failure becomes INFO with the error - the rating never stops an
-    analysis."""
+    analysis. The unspent attribute and skill points are carried in every case (the panels name them)."""
+    attribute, skill, _devotion = unspent_points(ctx)
+    extra = {"free_attribute_points": attribute, "free_skill_points": skill}
     if pet or early:
-        return _empty(pet=pet, early=early and not pet)
+        return _empty(pet=pet, early=early and not pet, **extra)
     try:
         raw = GEN.run(ctx, snap, stage_targets(results), melee, with_reroll=False, sections=SECTIONS, light=True)
-        return from_raw(raw)
+        return replace(from_raw(raw), **extra)
     except Exception as ex:                                              # noqa: BLE001
-        return _empty(error=f"{type(ex).__name__}: {ex}")
+        return _empty(error=f"{type(ex).__name__}: {ex}", **extra)

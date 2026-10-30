@@ -140,13 +140,57 @@ def _status(now, target, tol_kind, tol, lower_is_better=False):
     return "gap"
 
 
+@dataclass(frozen=True)
+class ResistRow:
+    """One of the nine resistances against its target. `value` is the resistance as it counts (before the endgame
+    the projected Ultimate value with the penalty, in the endgame the sheet value), `target` what it is measured
+    against (before the endgame 80 or the own cap when lower, in the endgame the own cap), `shown` the value
+    capped at the cap (before the endgame the projected Ultimate value capped at the combat cap), `spare` =
+    value - target (negative: short), `met` the stage's rule: before the endgame round(value) >= target, in the
+    endgame value >= target (as the count targets and `_res_deficits` count it)."""
+    name: str
+    value: float
+    cap: float
+    target: float
+    shown: float
+    spare: float
+    met: bool
+
+
+def resist_rows(ctx, snap, stage: Stage) -> tuple[ResistRow, ...]:
+    """The nine resistances in type order: before the endgame against 80 on Ultimate (or the own cap when lower), in
+    the endgame against the own cap. The one source of the count targets, their deficits and the report cells."""
+    if stage is Stage.ENDGAME:
+        rs = snap.sheet.resists
+        return tuple(ResistRow(n, rs[n]["value"], rs[n]["cap"], rs[n]["cap"], min(rs[n]["value"], rs[n]["cap"]),
+                               rs[n]["value"] - rs[n]["cap"], rs[n]["value"] >= rs[n]["cap"]) for n in RES.RESISTS)
+    cap = snap.combat.resists
+    return tuple(ResistRow(n, r["value"], cap[n]["cap"], r["target"], min(r["value"], cap[n]["cap"]),
+                           r["value"] - r["target"], round(r["value"]) >= r["target"])
+                 for n, r in STG.ultimate_resists(ctx, snap).items())
+
+
+def threshold_for(data, metric: str, stage: Stage, melee: bool, profile: str = "any") -> float | None:
+    """The threshold of the (non-hardcore) target for `metric` in `stage`, as targets.json states it - without the
+    level scaling (`scale_with_level`: EARLY targets scale with the level in `metric`); None when the stage has no
+    such target. Same selection as `selected`."""
+    for t in data["targets"]:
+        if t["metric"] != metric or stage.value not in t["stages"] or t.get("hardcore"):
+            continue
+        if t["profile"] not in ("any", profile):
+            continue
+        arch = t.get("archetype", "any")
+        if arch == "melee" and not melee or arch == "other" and melee:
+            continue
+        return t.get("threshold")
+    return None
+
+
 def _res_pairs(ctx, snap, m) -> list[tuple[float, float]]:
     """(value, target) of the nine resistances: on Ultimate against 80 (or the own cap when lower), at the
     end against the own cap."""
-    if m == "res_ultimate_count":
-        return [(r["value"], r["target"]) for r in STG.ultimate_resists(ctx, snap).values()]
-    rs = snap.sheet.resists
-    return [(rs[n]["value"], rs[n]["cap"]) for n in RES.RESISTS]
+    stage = Stage.MID if m == "res_ultimate_count" else Stage.ENDGAME
+    return [(r.value, r.target) for r in resist_rows(ctx, snap, stage)]
 
 
 def _res_deficits(ctx, snap, m) -> list[float]:

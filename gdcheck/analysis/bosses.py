@@ -263,6 +263,8 @@ class BossRisk:
     reflect: tuple = ()        # (percent, skill name) of its damage reflection, () without
     purge: tuple = ()          # names of its skills that remove your buffs
     ointments: tuple = ()      # N-010: two or more ointments needed at once (only one works) - their names
+    weak: tuple = ()           # report v2: one word per reason, same order - the resistance type, 'Physical',
+                               # 'Leech', the crowd control kind, 'DA shred' or 'Two ointments' (the matrix columns)
 
     def hazards(self) -> str:
         """X-012: 'RR -25 Bleeding; CC Freeze/Stun; reflect 16% (Blade Barrier); purge (Nullified)' or ''."""
@@ -351,7 +353,7 @@ def assess(ctx, snap, stage: Stage, results, melee: bool) -> list[BossRisk]:
                 v = min(snap.combat.resists["Physical"]["value"], snap.combat.resists["Physical"]["cap"])
                 if v < phys_target - 4:
                     reasons_mid.append((phys_target - v, f"hits physical - Physical Res {math.floor(v)}% "
-                                                         f"(target {phys_target:.0f}%)"))
+                                                         f"(target {phys_target:.0f}%)", "Physical"))
                     fields_missing.append(("defensivePhysical", phys_target - v))
                 continue
             r = snap.combat.resists.get(t)
@@ -362,25 +364,25 @@ def assess(ctx, snap, stage: Stage, results, melee: bool) -> list[BossRisk]:
                 target = min(r["cap"], 80.0)
             gap = target - r["value"]
             if gap > 10:
-                reasons_hi.append((gap, f"{t} Res {math.floor(r['value'])} vs {target:.0f} needed"))   # B7: down
+                reasons_hi.append((gap, f"{t} Res {math.floor(r['value'])} vs {target:.0f} needed", t))   # B7: down
                 fields_missing.append((RES_FIELD[t], gap))
             elif gap > 3:
-                reasons_mid.append((gap, f"{t} Res {math.floor(r['value'])} vs {target:.0f} needed"))
+                reasons_mid.append((gap, f"{t} Res {math.floor(r['value'])} vs {target:.0f} needed", t))
                 fields_missing.append((RES_FIELD[t], gap))
         leech_t = 50.0 if (endgame and kind == "SuperBoss") else 0.0
         if p.get("leech") and snap.sheet.leech["value"] < leech_t:
             reasons_mid.append((leech_t - snap.sheet.leech["value"],
-                                f"leeches your life - Life Leech Res {math.floor(snap.sheet.leech['value'])}%"))
+                                f"leeches your life - Life Leech Res {math.floor(snap.sheet.leech['value'])}%", "Leech"))
             fields_missing.append(("defensiveSlowLifeLeach", leech_t - snap.sheet.leech["value"]))
         for cc in p.get("cc") or []:
             f = CC_FIELD.get(cc)
             if f and snap.combat.fields.get(f, 0.0) < 50:
                 reasons_mid.append((50 - snap.combat.fields.get(f, 0.0),
-                                    f"can {cc.lower()} you - {cc} Res {math.floor(snap.combat.fields.get(f, 0.0))}%"))
+                                    f"can {cc.lower()} you - {cc} Res {math.floor(snap.combat.fields.get(f, 0.0))}%", cc))
                 fields_missing.append((f, 50 - snap.combat.fields.get(f, 0.0)))
         if p.get("da_minus") and snap.combat.abilities["da"] < da_target:
             short = 100 * (da_target - snap.combat.abilities["da"]) / da_target     # points short, in %
-            reasons_mid.append((short, f"lowers your DA - DA {math.floor(snap.combat.abilities['da']):,}"))
+            reasons_mid.append((short, f"lowers your DA - DA {math.floor(snap.combat.abilities['da']):,}", "DA shred"))
         cons, clash, clash_gap = None, (), 0.0
         if fields_missing:
             for c in sorted(cat, key=lambda c: (not have.get(c["record"]), not c["ointment"], c["name"])):
@@ -398,21 +400,24 @@ def assess(ctx, snap, stage: Stage, results, melee: bool) -> list[BossRisk]:
         # reasons - it leads where it is what makes the boss HIGH; V2.1: with small gaps only (MEDIUM) it is a
         # note after the gaps it is about
         count = {2: "two", 3: "three"}.get(len(clash), str(len(clash)))
-        clash_txt = []
+        clash_txt = []                  # (text, weak spot) like the other reasons; the gap is only for sorting
         if clash:
             names = " + ".join(clash)
-            clash_txt = [f"needs {count} ointments ({names}) - only one works at a time"] if clash_high else \
-                        [f"small gaps need {count} ointments ({names}) - only one ointment works at a time"]
-        reasons = [txt for _g, txt in sorted(reasons_hi, key=lambda x: -x[0])] + \
+            clash_txt = [(f"needs {count} ointments ({names}) - only one works at a time", "Two ointments")] \
+                if clash_high else \
+                [(f"small gaps need {count} ointments ({names}) - only one ointment works at a time",
+                  "Two ointments")]
+        ordered = [(txt, w) for _g, txt, w in sorted(reasons_hi, key=lambda x: -x[0])] + \
                   (clash_txt if clash_high else []) + \
-                  [txt for _g, txt in sorted(reasons_mid, key=lambda x: -x[0])] + \
+                  [(txt, w) for _g, txt, w in sorted(reasons_mid, key=lambda x: -x[0])] + \
                   ([] if clash_high else clash_txt)
+        reasons, weak = [t for t, _w in ordered], [w for _t, w in ordered]       # one list, one source of truth
         hz = hazards.get(name) or {}
         rr = sorted((hz.get("rr") or {}).items(), key=lambda x: RES_ORDER.index(x[0]) if x[0] in RES_ORDER else 99)
         out.append(BossRisk(name, kind, risk, tuple(reasons), cons,
                             tuple(p.get("typen") or ()), bool(p.get("leech")),
                             tuple(p.get("cc") or ()), bool(p.get("da_minus")),
-                            tuple(rr), tuple(hz.get("reflect") or ()), tuple(hz.get("purge") or ()), clash))
+                            tuple(rr), tuple(hz.get("reflect") or ()), tuple(hz.get("purge") or ()), clash, tuple(weak)))
     rank = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
     out.sort(key=lambda b: (rank[b.risk], -len(b.reasons), b.name))
     return out

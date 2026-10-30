@@ -2,7 +2,7 @@
 
 The readiness bar shows the score band by band (EARLY 0-33, MID 34-66, ENDGAME 67-100), full up to the
 score. An area bar shows the area's value 0-100 in the colour of its status (OK green, RISK yellow, GAP
-red); INFO has no bar. Chat Markdown draws coloured squares, the text view ASCII, HTML a width in percent.
+red); INFO has no bar. Chat Markdown draws coloured squares, the text view ASCII (the HTML report v2 draws its own bars from the view).
 Every rounding is DOWN (B7): a full bar always means 'everything met'. No game rules here (F-008)."""
 from __future__ import annotations
 
@@ -26,11 +26,6 @@ def fill(score: float, low: float, high: float) -> float:
 def cells(fraction: float, n: int) -> int:
     """Whole cells of n for a fraction 0..1, rounded down."""
     return min(max(int(math.floor(fraction * n + _EPS)), 0), n)
-
-
-def pct(fraction: float) -> int:
-    """Whole percent of a fraction 0..1, rounded down (the width of an HTML bar)."""
-    return min(max(int(math.floor(fraction * 100 + _EPS)), 0), 100)
 
 
 def _has_bar(value, status: str) -> bool:
@@ -69,8 +64,3 @@ def text_area(value: int | None, status: str) -> str:
         return " " * (TEXT_AREA_CELLS + 2)
     n = cells(value / 100, TEXT_AREA_CELLS)
     return f"[{'#' * n}{'-' * (TEXT_AREA_CELLS - n)}]"
-
-
-def html_value(value: int | None, status: str) -> int | None:
-    """The value of an HTML meter, None where the area has no bar."""
-    return value if _has_bar(value, status) else None

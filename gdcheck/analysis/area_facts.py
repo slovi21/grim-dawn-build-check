@@ -74,20 +74,31 @@ class MainType:
     rr_weak: tuple = (0.0, 0.0, 0.0)    # per kind the strongest source that exists but is not permanent
     rr_why: tuple = ("", "", "")        # why it is not permanent ('not kept up', 'on chance', ...)
 
+    def state(self, i: int) -> str:
+        """Kind `i` (0 stacking, 1 reduced, 2 flat) of the resistance reduction: "full" when a permanent source works, "half"
+        when one exists but is not permanent (debuff not kept up, chance, one skill), else "none"."""
+        return "full" if self.rr[i] >= 1.0 else "half" if self.rr_weak[i] >= 1.0 else "none"
+
     def kinds(self) -> float:
         """How many of the three kinds of resistance reduction work on this type (they stack): a permanent
         one counts 1, one that exists but is not permanent (debuff not kept up, chance, one skill) counts 1/2."""
-        return sum(1.0 if now >= 1.0 else 0.5 if weak >= 1.0 else 0.0 for now, weak in zip(self.rr, self.rr_weak))
+        return sum({"full": 1.0, "half": 0.5, "none": 0.0}[self.state(i)] for i in range(3))
 
 
 RR_WEIGHTS = (0.5, 0.3, 0.2)   # stacking, reduced, flat: they stack; the stacking one is the strongest (user 04.10.2026)
 
 
+def rr_weighted(perm, weak) -> float:
+    """The weighted kinds of resistance reduction, 0..1, from the permanent values (stacking, reduced %, flat) and the
+    strongest values that exist but are not permanent: 0.5 / 0.3 / 0.2, a kind that is not permanent counts half."""
+    return sum(w * (1.0 if now >= 1.0 else 0.5 if weak_ >= 1.0 else 0.0)
+               for w, now, weak_ in zip(RR_WEIGHTS, perm, weak))
+
+
 def rr_score(m: "MainType") -> float:
     """Resistance reduction of a main type for the score target 'rr_main', 0..1: the three kinds weighted
     0.5 / 0.3 / 0.2, a kind that exists but is not permanent counts half (N3, user 04.10.2026)."""
-    return sum(w * (1.0 if now >= 1.0 else 0.5 if weak >= 1.0 else 0.0)
-               for w, now, weak in zip(RR_WEIGHTS, m.rr, m.rr_weak))
+    return rr_weighted(m.rr, m.rr_weak)
 
 
 @dataclass(frozen=True)

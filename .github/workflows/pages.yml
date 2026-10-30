@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "web/**"
+      - "gdcheck/**"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
@@ -26,10 +29,43 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/configure-pages@v6
-      - uses: actions/upload-pages-artifact@v5
+      # The actions are pinned to the commit of their tag (a tag can be moved, a commit cannot); Dependabot proposes the next
+      # one every week (.github/dependabot.yml). The checkout keeps no token in .git/config: the job needs it only as GH_TOKEN.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: site
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      # The game data package is never in the repository. Only the pointer site/data/current.json is: it names the
+      # release and the file. Without the pointer nothing is downloaded and the site is built closed.
+      - name: Download the data package named by the pointer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ -f site/data/current.json ]; then
+            release=$(python -c "import json; print(json.load(open('site/data/current.json'))['release'])")
+            file=$(python -c "import json; print(json.load(open('site/data/current.json'))['file'])")
+            [[ "$release" =~ ^data-[A-Za-z0-9._+-]+$ ]] || { echo "pointer: bad release name"; exit 1; }
+            [[ "$file" =~ ^gd-data-[A-Za-z0-9._+-]+\.zip$ ]] || { echo "pointer: bad file name"; exit 1; }
+            mkdir _data
+            gh release download "$release" --pattern "$file" --dir _data
+            cp site/data/current.json _data/current.json
+          fi
+      # web/build_site.py checks the SHA256 of the pinned Pyodide (web/pyodide.json) and of the data package. Exit 1
+      # (hash or damaged package) stops the deploy. The state "updating" (data of another index schema) is no error:
+      # the builder exits 0 and the site goes live in the state "updating" (the page says so; noindex; no data in it).
+      - name: Build the site
+        run: |
+          if [ -d _data ]; then
+            python web/build_site.py --out _site --site site --data-bundle _data
+          else
+            python web/build_site.py --out _site --site site
+          fi
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

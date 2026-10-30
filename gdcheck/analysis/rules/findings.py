@@ -27,6 +27,7 @@ class Finding:
     evidence: str          # DB / Wiki / Guide / Forum / Savefile / own ("eigen")
     fix: str = ""
     check_in_game: str = ""
+    subject: str = ""      # report v2: the record the finding is about (D1: the power, C1 of a skill: the skill)
 
 
 def points(n: int, word: str = "point") -> str:

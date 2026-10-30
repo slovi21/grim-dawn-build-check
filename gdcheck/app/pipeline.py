@@ -10,6 +10,7 @@ from ..analysis import run as RUN
 from ..analysis import targets as TGT
 from ..data import campaign as CAMP
 from ..data import index_cache
+from ..data import savefile as SF
 from ..data.index import SUPPORTED_SCHEMA, GameIndex
 from ..domain import character, context
 from ..report import build as RB
@@ -106,10 +107,19 @@ def _boss_data_version(index=None) -> str:
             + (f" - {r.note}" if r.note else ""))
 
 
-def analyse_file(gdc: Path, index: GameIndex, options: context.Options):
-    ch = character.load(gdc, index.display, index.tag)
+def character_from_bytes(gdc: bytes, index: GameIndex) -> character.Character:
+    """The character of the bytes of a player.gdc (the web entry: nothing is read from disk, source_path stays empty).
+    Raises savefile.GDFormatError (or ValueError/EOFError/IndexError/KeyError) for bytes that are no save."""
+    return character.from_doc(SF.parse_character(gdc), index.display, index.tag)
+
+
+def analyse_character(ch: character.Character, index: GameIndex, options: context.Options):
     ctx = context.make_context(index, ch, options)
     return RUN.run(ctx, detail=options.detail)
+
+
+def analyse_file(gdc: Path, index: GameIndex, options: context.Options):
+    return analyse_character(character.load(gdc, index.display, index.tag), index, options)
 
 
 def report_for(analysis, index, mechanics_note: str | None = None):

@@ -343,7 +343,7 @@ def _rr_row(area, a) -> str:
 
 # -- Skills & Devotions ----------------------------------------------------------------------------------
 
-UNSPENT_FROM = 5                   # free devotion points from which the row names them (decision 04.10.2026)
+UNSPENT_FROM = BQ.UNSPENT_FROM     # free devotion points from which the row names them (decision 04.10.2026; lives in the analysis)
 
 
 def _points(n: int) -> str:

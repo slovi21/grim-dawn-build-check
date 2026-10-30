@@ -55,15 +55,19 @@ def _rr_keys(rf: str, kind: str) -> tuple:
     return tuple(keys)
 
 
+def debuff_reduction(debuff, rf: str) -> float:
+    """What one enemy debuff row of the snapshot takes off the resistance `rf` (positive = lowers it; the elemental
+    debuff value counts for the three elements)."""
+    v = debuff["values"]
+    return -v.get(f"defensive{rf}", 0.0) - (v.get("defensiveElementalResistance", 0.0) if rf in ELEMENTAL else 0.0)
+
+
 def _debuff_stack(snap, rf: str, kept_up: bool) -> float:
     """Type 1: the sum of the enemy debuffs (kept up or not) that lower `rf`."""
     t1 = 0.0
     for d in snap.enemy_debuffs:
         if bool(d.get("kept_up")) is kept_up:
-            v = d["values"]
-            t1 += -v.get(f"defensive{rf}", 0.0)
-            if rf in ELEMENTAL:
-                t1 += -v.get("defensiveElementalResistance", 0.0)
+            t1 += debuff_reduction(d, rf)
     return max(t1, 0.0)
 
 
@@ -107,9 +111,7 @@ def resistance_detail(snap, sources=None) -> dict:
     out = {}
     for rf in RES_TYPES:
         weak, why, lines = [0.0, 0.0, 0.0], ["", "", ""], []
-        debuffs = [d for d in snap.enemy_debuffs
-                   if (-d["values"].get(f"defensive{rf}", 0.0)
-                       - (d["values"].get("defensiveElementalResistance", 0.0) if rf in ELEMENTAL else 0.0)) > 0]
+        debuffs = [d for d in snap.enemy_debuffs if debuff_reduction(d, rf) > 0]
         lines += [f"{d['label']} (enemy debuff)" for d in debuffs if d.get("kept_up")]
         lines += [f"{d['label']} (enemy debuff, not kept up)" for d in debuffs if not d.get("kept_up")]
         weak[0] = _debuff_stack(snap, rf, False)

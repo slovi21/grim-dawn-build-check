@@ -108,5 +108,5 @@ def run(ctx, sources=None, detail: bool = False, generator_override=None) -> Ana
              "attacks_per_second": eps}
     checks = CC.check(ctx, sources, snap, acts, tstates, ctx.options.onslaught or 0, procs, fm)
     return Analysis(ctx, sources, snap, aud, acts, ons, tstates, shred, arch, stg, fails, results, sc,
-                    areas, issues, bosses, props, player, rates, {}, checks, CC.plausibility(ctx, checks), facts,
+                    areas, issues, bosses, props, player, rates, extra, checks, CC.plausibility(ctx, checks), facts,
                     bench, quality)

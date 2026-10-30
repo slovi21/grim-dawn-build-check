@@ -5,38 +5,42 @@ from __future__ import annotations
 
 import math
 import re
-from pathlib import Path
 
+from ..analysis import guide as GD
 from ..analysis import readiness as RD
 from ..analysis.readiness import AREAS
-from ..domain.enums import LiveStatus
 from ..data.text import field_label
 from . import area_text as AT
 from . import build_tables as BT
+from . import common as CM
+from . import view_areas as VA
+from . import view_explain as VX
+from . import view_improve as VI
+from . import view_overview as VO
 from .score_text import score_parts as _score_parts
 from .model import Area, PlayerAction, PlayerBoss, PlayerIssue, Report, Table
+from .view import ReportView
 from .text_util import int_text as _int_text
 from .text_util import num as _n
 from .text_util import player_now as _player_now
 from .text_util import worst_first as _worst_first
 
-PROFILE_NAME = {"general": "General Ultimate", "sr": "Shattered Realm", "ascendant": "Ascendant",
-                "celestial": "Celestials"}
 MASTERY_SHORT = {"Demolitionist": "Demo", "Occultist": "Occu", "Nightblade": "NB", "Arcanist": "Arca"}
 CLASS_SHORT = {"Sorcerer": "Sorc", "Sorceress": "Sorc", "Blademaster": "BM", "Elementalist": "Ele",
                "Saboteur": "Sabo", "Witch Hunter": "WH", "Warder": "Warder", "Battlemage": "BaMa",
                "Pyromancer": "Pyro", "Vindicator": "Vindi"}
 STATUS_WORD = {"OK": "OK", "RISK": "RISK", "GAP": "GAP", "INFO": "INFO"}
-ROOT = Path(__file__).resolve().parents[2]
 
-
-def _signed(d, player: bool = False):
-    unit = d.unit if d.unit == "%" else ""
-    ch = d.change
-    if player and abs(ch) < 0.5:              # B7: no decimals in the Player View - never '+0%'
-        return f"{d.label} {'+' if ch > 0 else '-'}<1{unit}"
-    num = f"{ch:,.1f}" if unit == "%" and abs(ch) < 1 and not player else f"{ch:,.0f}"
-    return f"{d.label} {'+' if ch > 0 else ''}{num}{unit}"
+# moved to common.py (report v2): the old private names stay as aliases
+_signed = CM.signed
+_lost_grouped = CM.lost_grouped
+_cost_text = CM.cost_text
+_GAIN_FOR = CM.GAIN_FOR
+_gain_text = CM.gain_text
+boss_fights = CM.boss_fights
+only_with_consumable = CM.only_with_consumable
+PROFILE_NAME = CM.PROFILE_NAME                # report v2: shared with the view modules
+short_why = CM.short_why
 
 
 def class_line(ch) -> str:
@@ -50,21 +54,21 @@ def class_line(ch) -> str:
 
 def version_line(ctx, meta) -> tuple[str, list]:
     gv = ctx.game_version
-    st = ctx.live_status
+    state = CM.version_state(ctx)
     warnings = []
-    if st == LiveStatus.MATCHES_LIVE:
+    if state == "live":
         txt = f"Game data {gv} - matches live patch {ctx.options.live_version}" + (
             f" (checked {ctx.options.live_checked})" if ctx.options.live_checked else "")
-    elif st == LiveStatus.MATCHES_INSTALLED and ctx.options.version_unconfirmed:
+    elif state == "unconfirmed":
         # the data are the installed ones, the label is not confirmed (stale log.html): it also picks the
         # version-specific rules (effective_ruleset), so the player is told how to get it confirmed
         txt = (f"Game data {gv} (version not confirmed - Grim Dawn has not run since its last update) "
                "- built from your installed game")
         warnings.append("The game version could not be confirmed. Start Grim Dawn once (the main menu is "
                         "enough), then start the check again - it updates the game data by itself.")
-    elif st == LiveStatus.MATCHES_INSTALLED:
+    elif state == "installed":
         txt = f"Game data {gv} - matches your installed game"
-    elif st == LiveStatus.MISMATCH:
+    elif state == "mismatch":
         live = ctx.options.live_version or "your installed game"
         txt = f"Game data {gv} - DOES NOT MATCH {live}"
         warnings.append(f"Game data {gv} does not match {live}: item values and rules may be "
@@ -181,82 +185,10 @@ def _issue_title(i, words: int = 16) -> str:
     return f"{i.title} - " + ("needs " + first.split(":", 1)[1].strip() if first.startswith("Requirement:") else first)
 
 
-def short_why(text: str, words: int = 25) -> str:
-    """N-011: a reason of at most 25 words, cut at a word boundary (before: 160 characters, cut mid-word).
-    A cut never leaves an open bracket or a trailing dash (.62, code review)."""
-    w = str(text or "").split()
-    if len(w) <= words:
-        return " ".join(w)
-    cut = " ".join(w[:words])
-    if cut.count("(") > cut.count(")"):
-        cut = cut[:cut.rfind("(")]
-    return cut.rstrip(" ,;:-(") + " ..."
-
-
 def _player_why(r) -> str:
     """Reason of a target in plain words (.62): the target's own player_why from targets.json; never
     the source note, which names database files and sources (N-008, review of .61)."""
     return short_why(getattr(r, "player_why", "") or getattr(r, "player_text", "") or r.label)
-
-
-def _lost_grouped(lost) -> list[str]:
-    """Player View (A4, actions <=2 lines): '+50% Aether Damage', '+50% Fire Damage' -> one
-    'you lose +50% Aether and Fire Damage' - every drawback still named, only shorter."""
-    groups: dict = {}
-    other = []
-    for x in lost:
-        m = re.fullmatch(r"(\S+) (.+) Damage", str(x))
-        if m:
-            groups.setdefault(m.group(1), []).append(m.group(2))
-        else:
-            other.append(str(x))
-    parts = [f"{v} " + (", ".join(n[:-1]) + " and " + n[-1] if len(n) > 1 else n[0]) + " Damage"
-             for v, n in groups.items()]
-    return ([f"you lose {', '.join(parts)}"] if parts else []) + [f"you lose {x}" for x in other]
-
-
-def _cost_text(p, player: bool = False) -> str:
-    """Every drawback is named (N-006) - costs are never cut off; lost bound Celestial Powers
-    count as a drawback (the counterfactual cannot see procs)."""
-    lost = [f"loses Celestial Power {n} (bound to {b}" + (", your low-health circuit breaker" if t == "LowHealth"
-            else "") + ")" for n, b, t in (p.detail.get("lost_powers") or ())]
-    raw = list(p.detail.get("lost") or ())
-    lost += _lost_grouped(raw) if player else [f"you lose {x}" for x in raw]
-    if p.cost or lost:
-        return ", ".join([_signed(d, player) for d in p.cost] + lost)
-    if p.kind == "consumable":
-        if not p.detail.get("ointment"):
-            return "none (temporary)"
-        return "uses your ointment slot (one at a time)" if player else \
-            "uses your ointment slot - only one ointment works at a time"
-    return "none for your stats"
-
-
-_GAIN_FOR = {"health": ("Health",), "da": ("Defensive Ability",), "physical": ("Physical Res",),
-             "absorption": ("Armor Absorption",), "armor": ("Armor (weighted)",), "leech": ("Life Leech Res",),
-             "freeze": ("Freeze Res",), "stun": ("Stun Res",), "slow": ("Slow Res",), "pth": ("Offensive Ability",)}
-
-
-def _gain_text(p, a, n: int = 3, player: bool = True) -> str:
-    """Gains that touch an open target first, then the rest; '+k more' instead of silently cutting
-    (.62, product review: Cpt Cheat's Aether +18% that closes a gap was the 4th value and hidden). E3 uses
-    it too (.67, Cpt Piercewolf: Aether Res +20% closed the target but was the 5th gain), with the
-    expert number format (player=False)."""
-    open_ids = [r.id for r in a.results if r.status in ("gap", "tight")]
-    below = set()
-    for r in a.results:
-        if r.id in ("res_ultimate", "res_own_cap") and r.status in ("gap", "tight") and "below: " in r.now_text:
-            below |= {x.rsplit(" ", 1)[0] + " Res" for x in r.now_text.split("below: ")[-1].split(", ")}
-        elif r.status in ("gap", "tight") and r.id.startswith(("ravager", "fire_", "lightning_")):
-            below.add(r.label.split(" buffer")[0].split()[-1] + " Res")
-
-    def touches(d) -> bool:
-        if d.label in below:
-            return True
-        return any(d.label in labs for k, labs in _GAIN_FOR.items() if any(i.startswith(k) for i in open_ids))
-    gains = sorted(p.gain, key=lambda d: not touches(d))
-    txt = ", ".join(_signed(d, player) for d in gains[:n])
-    return txt + (f" +{len(gains) - n} more" if len(gains) > n else "")
 
 
 def player_actions(a) -> list[PlayerAction]:
@@ -293,40 +225,6 @@ def _action_line_len(what: str, gain: str, cost: str, tags) -> int:
 
 BOSS_LEGEND = ("Risk: HIGH = a resistance more than 10 short or 3+ weak spots; MEDIUM = 1-2 weak spots; "
                "LOW = none found.")
-
-
-def boss_fights(a) -> dict:
-    """Boss name -> fight key (B2): forms and phases of one fight share the key. The link is the boss
-    data's spawn-on-death chain ('phases', data.boss_graph), never the name - a test save: 'The Final
-    Form ...' and 'The Actually Final Form ...' are one fight. Bosses without data: their own key."""
-    try:
-        from ..data import bosses as BD
-        from ..data import versioned as V
-        ver, fp = V.index_identity(a.ctx.index)
-        data = (BD.combat_meta(ROOT, ver or "1.3.0.8", fp) or {}).get("bosses") or {}
-    except (OSError, ValueError, AttributeError, TypeError):   # no boss data: every boss is its own fight
-        data = {}
-    parent: dict = {}
-
-    def find(x):
-        while parent.setdefault(x, x) != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-    for b in data.values():
-        recs = [b.get("record")] + [ph.get("record") for ph in b.get("phases") or ()]
-        recs = [r for r in recs if r]
-        for r in recs[1:]:
-            parent[find(r)] = find(recs[0])
-    return {name: find(b["record"]) for name, b in data.items() if b.get("record")}
-
-
-def only_with_consumable(b) -> bool:
-    """N-010: the named consumable closes every reason - the boss is prepared only with it. The DA-shred
-    reason has no consumable field, so a boss with it is never 'with consumable'; nor is one that needs two
-    ointments at once (only one works at a time)."""
-    return bool(b.consumable) and bool(b.reasons) and not getattr(b, "ointments", ()) \
-        and not any(r.startswith("lowers your DA") for r in b.reasons)
 
 
 def player_bosses(a) -> list[PlayerBoss]:
@@ -848,6 +746,10 @@ def e6(a, versions) -> Table:
         if i.code.startswith("L"):
             rows.append(["Model limit", i.title])
     rows += [["Model limit", line] for line in generator_limits(a)]
+    unknown = GD.unresolved(a.sources)
+    if unknown:                                                  # report v2: records the game data does not know (a mod, a newer patch)
+        rows.append(["Unknown records", f"{unknown} items or skills of this save are not in the game data "
+                                        f"{a.ctx.game_version} - a newer game patch?"])
     # .72: one row for the assumptions and the facts of the game database (a row costs a Markdown line, the Expert View 150)
     rows.append(["Assumptions", "identical item auras count once (ASSUMED); monster level of bosses = your "
                                 "level via the boss's charLevel equation (DERIVED; area cap ASSUMED); crits also "
@@ -974,6 +876,14 @@ BAND_TEXT = {"EARLY": "EARLY scores 0-33 (levelling; the score grows with level 
              "ENDGAME": "ENDGAME scores 67-100; 100 needs every target met with room to spare"}
 
 
+def view_of(a, g, versions: dict, meta: dict | None = None) -> ReportView:
+    """The HTML view of an analysis `a` and its guide `g` (report v2): the four blocks and the footer."""
+    footer = (f"Grim Dawn build check {versions.get('skill', '')} · ruleset {a.ctx.ruleset_version} · "
+              "Bosses are a preparation check, never a win or lose forecast.")
+    return ReportView(VO.overview(a, g, versions, meta), VA.groups(a, g), VI.improvements(a, g), VX.explain(a, versions, meta),
+                      footer)
+
+
 def build(a, versions: dict, meta: dict | None = None) -> Report:
     meta = dict(meta or {})
     ch = a.ctx.character
@@ -1003,4 +913,5 @@ def build(a, versions: dict, meta: dict | None = None) -> Report:
         header=header, readiness=readiness, warnings=warnings, areas=areas,
         issues=issues, actions=actions, bosses=bosses, boss_legend=BOSS_LEGEND if bosses else "",
         expert=[e1(a), e2(a), e3(a), e4(a), e5(a), e6(a, versions)] + ([e7(a)] if a.combat_checks else []),
-        detail=details(a))
+        detail=details(a),
+        view_factory=lambda: view_of(a, GD.build_for(a), versions, meta))   # lazy: only render_html asks for the view

@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-kdLum0CRobJSqKLy0ic6dwizysJO8J6SsaPQWdchTus='; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; worker-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- robots -->
+<title>Online Check - Grim Dawn Build Check</title>
+<meta name="description" content="Check a Grim Dawn character save in your browser. Your save never leaves this browser.">
+<meta name="color-scheme" content="dark">
+<style>
+/* Fonts are served from this site (Latin subset, SIL OFL, see fonts/OFL.txt): no request goes to another host. */
+@font-face { font-family: "IM Fell English"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/im-fell-english-400.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/barlow-400.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-style: normal; font-weight: 500; font-display: swap; src: url("fonts/barlow-500.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-style: normal; font-weight: 600; font-display: swap; src: url("fonts/barlow-600.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Semi Condensed"; font-style: normal; font-weight: 600; font-display: swap; src: url("fonts/barlow-semi-condensed-600.woff2") format("woff2"); }
+
+:root {
+  --iron: #22262b;
+  --plate: #2a2f35;
+  --plate-2: #323840;
+  --seam: #3e454e;
+  --bone: #ece5d8;
+  --ash: #aaa398;
+  --brass: #d3ab62;
+  --brass-ink: #1d1a14;
+  --risk: #e6ab3e;
+  --bad: #e58a7a;
+
+  --display: "IM Fell English", "Iowan Old Style", Georgia, serif;
+  --text: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --narrow: "Barlow Semi Condensed", "Barlow", "Segoe UI", sans-serif;
+
+  --gutter: clamp(16px, 5vw, 40px);
+}
+
+* { box-sizing: border-box; }
+html { background: var(--iron); color-scheme: dark; }
+body {
+  margin: 0;
+  background: var(--iron);
+  color: var(--bone);
+  font: 400 17px/1.55 var(--text);
+  -webkit-font-smoothing: antialiased;
+  overflow-wrap: break-word;
+  overflow-x: hidden;
+}
+a { color: var(--brass); text-decoration-color: #d3ab6266; text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--brass); }
+:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; border-radius: 3px; }
+[hidden] { display: none !important; }
+.wrap { max-width: 760px; margin: 0 auto; padding: 0 var(--gutter); }
+.wide { max-width: 1280px; }
+.muted { color: var(--ash); }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+header.top { padding: clamp(28px, 6vw, 56px) 0 clamp(16px, 3vw, 28px); }
+header.top p.back { margin: 0 0 14px; font: 500 15px/1.4 var(--narrow); }
+h1 { font: 400 clamp(36px, 8vw, 56px)/1 var(--display); margin: 0; letter-spacing: -0.01em; }
+.lede { margin: 14px 0 0; max-width: 34em; font: 400 clamp(19px, 3vw, 22px)/1.35 var(--display); }
+.privacy { margin: 14px 0 0; max-width: 36em; color: var(--ash); font-size: 16px; }
+.privacy b { color: var(--bone); font-weight: 600; }
+
+.btn {
+  display: inline-block; padding: 12px 22px; border-radius: 4px; border: 0; cursor: pointer;
+  background: var(--brass); color: var(--brass-ink); text-decoration: none;
+  font: 600 17px/1.2 var(--narrow);
+}
+.btn:hover { background: #e0bb78; }
+.btn.quiet { background: transparent; color: var(--bone); border: 1px solid var(--seam); }
+.btn.quiet:hover { background: var(--plate-2); }
+
+/* the drop area: a label around the real file input, so it works with the keyboard and a screen reader */
+.drop {
+  display: grid; justify-items: center; gap: 12px; text-align: center;
+  padding: clamp(28px, 6vw, 48px) 16px; border: 2px dashed var(--seam); border-radius: 6px; background: var(--plate);
+}
+.drop.over { border-color: var(--brass); background: var(--plate-2); }
+.drop p { margin: 0; }
+.drop .hint { font-size: 15px; color: var(--ash); }
+.drop input:focus-visible + label { outline: 2px solid var(--brass); outline-offset: 3px; }
+
+.opts { margin-top: 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.opts label { font: 500 16px/1.2 var(--narrow); color: var(--ash); }
+select {
+  min-height: 44px; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--seam);
+  background: var(--plate); color: var(--bone); font: 500 16px/1.2 var(--text); max-width: 100%;
+}
+
+.status { margin-top: 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-height: 28px; }
+.status p { margin: 0; }
+.spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--seam); border-top-color: var(--brass); animation: spin 0.9s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; border-top-color: var(--seam); border-right-color: var(--brass); } }
+.error { color: var(--bad); }
+.slow { color: var(--risk); }
+
+.notice { margin-top: 18px; padding: 16px 18px; border: 1px solid var(--seam); border-left: 4px solid var(--brass); border-radius: 4px; background: var(--plate); max-width: 36em; }
+.notice p { margin: 0 0 8px; }
+.notice p:last-child { margin-bottom: 0; }
+
+.result-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 8px 0 14px; }
+.result-bar h2 { flex: 1 1 14em; margin: 0; font: 400 clamp(24px, 4vw, 30px)/1.15 var(--display); }
+.report-host { margin: 0 0 24px; }
+.report-host iframe { display: block; width: 100%; height: 80vh; min-height: 480px; border: 1px solid var(--seam); border-radius: 4px; background: var(--iron); }
+
+#selftest { margin-top: 18px; padding: 12px 14px; border: 1px solid var(--seam); border-radius: 4px; background: var(--plate); font: 400 15px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; }
+
+footer { margin-top: 24px; padding: 28px 0 56px; border-top: 1px solid var(--seam); font-size: 15px; color: var(--ash); }
+footer p { margin: 0 0 12px; max-width: 40em; }
+
+main[data-state="closed"] .check-ui, main[data-state="updating"] .check-ui, main[data-state="unsupported"] .check-ui,
+main[data-state="damaged"] .check-ui, main[data-state="start"] .check-ui { display: none; }
+main[data-state="loading"] .pick, main[data-state="checking"] .pick, main[data-state="result"] .pick, main[data-state="failed"] .pick { display: none; }
+</style>
+</head>
+<body>
+<main id="app" data-state="start">
+
+<header class="top wrap">
+  <p class="back"><a href="index.html">Grim Dawn Build Check</a></p>
+  <h1>Online Check</h1>
+  <p class="lede">Check a character save in your browser and see what holds the build back.</p>
+  <p class="privacy"><b>Your save never leaves this browser.</b> It is read in memory by the checker running in this tab. Nothing is uploaded, stored or sent anywhere.</p>
+</header>
+
+<div class="wrap wide-on-result">
+
+<noscript><div class="notice"><p>The online check needs JavaScript. Without it, please use the <a href="index.html#install">installer</a>.</p></div></noscript>
+
+<section id="notices" aria-label="State of the online check">
+  <div class="notice" data-msg="closed" hidden>
+    <p>The online check is not open yet. Use the installer for now.</p>
+    <p><a href="index.html#install">How to install</a></p>
+  </div>
+  <div class="notice" data-msg="updating" hidden>
+    <p>Game data is being updated - please use the installer meanwhile.</p>
+    <p><a href="index.html#install">How to install</a></p>
+  </div>
+  <div class="notice" data-msg="unsupported" hidden>
+    <p>This browser cannot run the online check. It needs WebAssembly and module workers - please use a current version of Chrome, Edge, Firefox or Safari, or the installer.</p>
+    <p><a href="index.html#install">How to install</a></p>
+  </div>
+  <div class="notice" data-msg="damaged" hidden>
+    <p>The game data of the online check is damaged. Reload the page; if it stays, use the installer.</p>
+    <p><a href="index.html#install">How to install</a></p>
+  </div>
+</section>
+
+<section class="check-ui" aria-label="Check a save">
+  <div class="pick">
+    <div class="drop" id="drop" data-testid="dropzone">
+      <p><b>Drop your <code>player.gdc</code> here</b></p>
+      <input class="sr-only" type="file" id="file" data-testid="file-input">
+      <label class="btn" for="file">Choose a file</label>
+      <p class="hint">One character save, at most 16 MB. Saves live in <code>Documents\My Games\Grim Dawn\save\main\_Name\player.gdc</code>.</p>
+    </div>
+    <div class="opts">
+      <label for="profile">Rate the build for</label>
+      <select id="profile" data-testid="profile">
+        <option value="general" selected>General (Ultimate)</option>
+        <option value="sr">Shattered Realm</option>
+        <option value="ascendant">Ascendant</option>
+        <option value="celestial">Celestial</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="status">
+    <div class="spin" id="spin" hidden></div>
+    <p id="status" role="status" aria-live="polite" data-testid="status"></p>
+    <p id="slow" class="slow" hidden>This takes longer on this device. You can keep waiting.</p>
+    <button type="button" class="btn quiet" id="stop" data-testid="stop" hidden>Stop</button>
+    <button type="button" class="btn quiet" id="retry" data-testid="retry" hidden>Try again</button>
+  </div>
+
+  <div id="result" hidden>
+    <div class="result-bar">
+      <h2 id="result-title" data-testid="result-title"></h2>
+      <button type="button" class="btn quiet" id="deeper" data-testid="deeper" hidden>Deeper analysis</button>
+      <button type="button" class="btn" id="again" data-testid="again">Check another save</button>
+    </div>
+    <div class="report-host" id="report-host" data-testid="report-host"></div>
+  </div>
+</section>
+
+<pre id="selftest" data-testid="selftest" hidden></pre>
+
+<footer>
+  <p>Fan-made tool. Not affiliated with Crate Entertainment. Grim Dawn is a trademark of Crate Entertainment.</p>
+  <p>Runs on Pyodide 314.0.7 (Mozilla Public License 2.0), unmodified. Source code and licenses: <span id="notices-wrap" hidden><a id="notices-link" data-testid="notices-link">license notices</a>, </span><a href="https://github.com/pyodide/pyodide/releases/tag/314.0.7" rel="noopener">Pyodide 314.0.7 release</a>.</p>
+  <p><a href="index.html">Home</a> · <a href="example.html">Example report</a></p>
+</footer>
+
+</div>
+</main>
+<script type="module" src="check/main.mjs"></script>
+</body>
+</html>

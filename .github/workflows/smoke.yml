@@ -17,11 +17,33 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python: ["3.11", "3.14"]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      # Pinned to the commit of the tag, kept current by Dependabot (.github/dependabot.yml); no token stays in .git/config.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
       - name: Engine starts
         run: python -X utf8 -m gdcheck --help
       - name: Launcher and installer script compile
         run: python -m py_compile lokal/gd_tools.py installer/build_installer.py
+
+  # The engine in the pinned, self-hosted Pyodide, started by Node: no saves and no game data, only the import and the
+  # self-test. Node is the one on the runner image (>= 20), so no further action is needed.
+  pyodide:
+    name: Pyodide boots the engine in Node
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: Build the site (closed)
+        run: python web/build_site.py --out _site --site site
+      - name: Node version
+        run: node --version
+      - name: Engine boots in Pyodide
+        run: node web/smoke.mjs --site _site --boot-only --out "$RUNNER_TEMP/boot.json"

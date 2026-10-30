@@ -90,5 +90,6 @@ def check_c1(ctx: RuleContext, sources: list | None = None) -> list[Finding]:
              "in dangerous fights." if temporary else
              f"This {what} permanently lowers your own stats - "
              "decide deliberately whether the upside is worth it."),
-            "Confirm sign and duration in the tooltip."))
+            "Confirm sign and duration in the tooltip.",
+            subject=(q.get("record") or "") if q["art"] == "skill" else ""))
     return out

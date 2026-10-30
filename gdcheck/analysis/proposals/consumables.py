@@ -113,8 +113,9 @@ def proposals(base, fields_targets) -> list[Proposal]:
         c = min(closing, key=lambda c: (not have.get(c["record"]), c["fields"][field], c["name"])) if closing \
             else max(fits, key=lambda c: (c["fields"][field], bool(have.get(c["record"])), c["name"]))
         n = have.get(c["record"], 0)
-        ctx2, _, snap2 = CF.snapshot_for(base, None, base.sources.plus(as_sources(c)))
-        cmp = CF.compare(base, ctx2, snap2)
+        change = (("consumable", as_sources(c)),)
+        ctx2, src2, snap2, _extra = CF.apply_changes(base, change)
+        cmp = CF.compare(base, ctx2, snap2, src2=src2)
         mins = int(round(c["duration"] / 60))
         out.append(Proposal(
             f"consumable:{c['record']}", "consumable", "Defense", f"{tgt.label}: {c['name']}",
@@ -125,5 +126,6 @@ def proposals(base, fields_targets) -> list[Proposal]:
             explain=(f"temporary: {mins} minutes", "only one ointment works at a time" if c["ointment"] else
                      "elixirs and ointments can be combined")
             + ((f"counted: {STORAGE_HINT} (the shared stash is not in the save file)",) if n else ()),
-            score=cmp["score"], detail={"field": field, "target": tid, "ointment": c["ointment"], "in_stock": n}))
+            score=cmp["score"], detail={"field": field, "target": tid, "ointment": c["ointment"], "in_stock": n, "name": c["name"],
+                                              **CF.annotate(cmp, temporary=True), "apply": change}))
     return out

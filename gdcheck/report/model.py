@@ -51,6 +51,9 @@ class Table:
 
 @dataclass
 class Report:
+    """What md, text and json print. `view_factory` builds the HTML view (report v2) and is not part of the data: `view()` calls
+    it the first time and keeps the result, `to_dict()` leaves it out, so nothing but the HTML renderer ever pays for the view
+    or sees a failure of its code."""
     meta: dict
     header: dict
     readiness: dict
@@ -63,9 +66,21 @@ class Report:
     detail: list           # Tables D1-...
     chat_hint: str = ""
     boss_legend: str = ""   # one line under the boss lines: what HIGH / MEDIUM / LOW mean (B2)
+    view_factory: object = field(default=None, repr=False, compare=False)    # () -> ReportView, set by build.build
+    _view = None            # the built view (no field: not in to_dict, not compared)
+
+    def view(self):
+        """The `ReportView` of the HTML report, built on the first call (analysis.guide and the view modules run here and
+        nowhere else)."""
+        if self._view is None:
+            if self.view_factory is None:
+                raise RuntimeError("this report has no view factory (it was not made by report.build.build)")
+            self._view = self.view_factory()
+        return self._view
 
     def to_dict(self) -> dict:
         d = asdict(self)
+        d.pop("view_factory", None)
         for group in ("expert", "detail"):          # 'cells' only where a table has them (E7)
             for t in d.get(group) or ():
                 if not t.get("cells"):

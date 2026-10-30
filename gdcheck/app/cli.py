@@ -232,19 +232,26 @@ def check(a, gdc: Path, env=None) -> int:
         views = tuple(v.strip() for v in (a.text or "player,expert").split(","))
         print(render_text.render(rep, views), end="")
     try:
-        if a.html:
-            ERR.write_retry(Path(a.html), render_html.render(rep, a.mechanics_link))
-            if not a.md:
-                print(f"HTML report written: {a.html}")
-        if a.json:
+        if a.json:                          # md, text and json first: the HTML builds the view, and its failure must not reach them
             doc = json.dumps(rep.to_dict(), indent=1, ensure_ascii=False, default=str)
             if a.json == "-":
                 say(doc)
             else:
                 ERR.write_retry(Path(a.json), doc)
     except OSError as ex:
-        _k, title, cause, fix = ERR.explain(ex)
-        print(f"Cannot write the output file: {ex}\n  {title}: {cause}\n  What you can do: {fix}",
-              file=sys.stderr)
-        return EXIT_CONFIG
+        return _cannot_write(ex)
+    if a.html:
+        page = render_html.render(rep, a.mechanics_link)        # outside the try: only writing the file is a write error
+        try:
+            ERR.write_retry(Path(a.html), page)
+        except OSError as ex:
+            return _cannot_write(ex)
+        if not a.md:
+            print(f"HTML report written: {a.html}")
     return EXIT_OK
+
+
+def _cannot_write(ex: OSError) -> int:
+    _k, title, cause, fix = ERR.explain(ex)
+    print(f"Cannot write the output file: {ex}\n  {title}: {cause}\n  What you can do: {fix}", file=sys.stderr)
+    return EXIT_CONFIG

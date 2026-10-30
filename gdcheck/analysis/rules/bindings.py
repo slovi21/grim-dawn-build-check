@@ -64,7 +64,7 @@ def item_skill_source(ctx: RuleContext, skill: str) -> tuple[str, str, str] | No
 def check_d1(ctx: RuleContext) -> list[Finding]:
     return [Finding("D1", "D", WARNING, f"{ctx.name(k)} is not bound",
                     "The celestial power never triggers.", "Savefile",
-                    "Bind it to a suitable skill.")
+                    "Bind it to a suitable skill.", subject=k)
             for k in celestial_powers(ctx) if k not in ctx.bindings]
 
 

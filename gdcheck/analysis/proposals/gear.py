@@ -73,6 +73,7 @@ def candidates(base, field: str, per_slot: int = 4) -> list[dict]:
                             "stock": ch.stock.get(rec_name, 0),
                             "faction": (v.get("m") or {}).get("factionSource"),
                             "lost": lost_offense(old, new),
+                            "rank_lost": CF.rank_bonus_lost(CF.rank_bonuses(idx, [cur]), CF.rank_bonuses(idx, [rec_name])),
                             "level": (v.get("m") or {}).get("levelRequirement")})
                 n += 1
                 if n >= per_slot:
@@ -127,17 +128,23 @@ def required_level(idx, item: dict) -> float:
     return req
 
 
+STASH_PARTS = ("basename", "prefix_name", "suffix_name", "modifier_name", "transmute_name",
+               "relic_name", "relic_bonus", "augment_name", "ascended_name", "ascended_2h_name")
+
+
 def stash_candidates(base, field: str) -> list[dict]:
     idx, ch = base.ctx.index, base.ctx.character
     out = []
 
     def total(it):
         s = {}
-        for key in ("basename", "prefix_name", "suffix_name", "modifier_name", "transmute_name",
-                    "relic_name", "relic_bonus", "augment_name", "ascended_name", "ascended_2h_name"):
+        for key in STASH_PARTS:
             for f, v in _fields(idx, it.get(key)).items():
                 s[f] = s.get(f, 0) + v
         return s
+
+    def ranks(it):
+        return CF.rank_bonuses(idx, [it.get(key) for key in STASH_PARTS])
     for w in ch.worn:
         if w.slot in ("Main hand", "Off hand", "Relic"):
             continue
@@ -154,6 +161,7 @@ def stash_candidates(base, field: str) -> list[dict]:
             gain = b.get(field, 0) - a.get(field, 0)
             if gain >= 1:
                 out.append({"slot": w.slot, "item": it, "gain": gain, "neg": _neg_res(a, b), "lost": lost_offense(a, b),
+                            "rank_lost": CF.rank_bonus_lost(ranks(w.item), ranks(it)),
                             "name": idx.item_name(it), "old_name": idx.item_name(w.item)})
     out.sort(key=lambda c: (c["neg"], -c["gain"], c["slot"], c["name"]))
     return out
@@ -295,8 +303,8 @@ def proposals(base, max_evals: int = 80, top_k: int = 5) -> list[Proposal]:
                 break
             used += 1
             ch2 = CF.with_item_part(base.ctx.character, c["slot"], c["part"], c["record"])
-            ctx2, _, snap2 = CF.snapshot_for(base, ch2)
-            cmp = CF.compare(base, ctx2, snap2, lost=c["lost"])
+            ctx2, src2, snap2 = CF.snapshot_for(base, ch2)
+            cmp = CF.compare(base, ctx2, snap2, lost=c["lost"], src2=src2, unrated=c.get("rank_lost", False))
             evaluated += 1
             if not CF.worth_it(base, cmp):
                 continue
@@ -320,15 +328,17 @@ def proposals(base, max_evals: int = 80, top_k: int = 5) -> list[Proposal]:
                 explain=(f"raises {field_label(field)} by {c['gain']:g}", "recalculated with all gear",
                          f"target: {tgt.label} {tgt.now_text} -> {tgt.target_text} ({tgt.basis})"),
                 score=cmp["score"], detail={"field": field, "target": tid, "level": c["level"],
-                        "slot_part": f"{c['slot']}:{c['part']}", "lost": c["lost"],
+                        "slot_part": f"{c['slot']}:{c['part']}", "lost": c["lost"], "name": c["name"],
+                        "slot": c["slot"], "old_name": c["old_name"], **CF.annotate(cmp),
+                        "apply": (("item_part", c["slot"], c["part"], c["record"]),),
                         **({"needs_rank": need} if need else {})}))
         for c in stash_candidates(base, field)[:2]:
             if used >= max_evals:
                 break
             used += 1
             ch2 = CF.with_item(base.ctx.character, c["slot"], c["item"])
-            ctx2, _, snap2 = CF.snapshot_for(base, ch2)
-            cmp = CF.compare(base, ctx2, snap2, lost=c["lost"])
+            ctx2, src2, snap2 = CF.snapshot_for(base, ch2)
+            cmp = CF.compare(base, ctx2, snap2, lost=c["lost"], src2=src2, unrated=c.get("rank_lost", False))
             if not CF.worth_it(base, cmp):
                 continue
             out.append(Proposal(
@@ -339,5 +349,7 @@ def proposals(base, max_evals: int = 80, top_k: int = 5) -> list[Proposal]:
                 prio if cmp["fixes"] else "LOW", "low", in_stock=True, source="in your stash",
                 explain=(f"raises {field_label(field)} by {c['gain']:g}", "recalculated with all gear"),
                 score=cmp["score"], detail={"field": field, "target": tid, "slot_part": f"{c['slot']}:item",
-                                            "lost": c["lost"]}))
+                                            "lost": c["lost"], "name": c["name"], "slot": c["slot"],
+                                            "old_name": c["old_name"], **CF.annotate(cmp),
+                                            "apply": (("item", c["slot"], c["item"]),)}))
     return out

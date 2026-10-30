@@ -133,6 +133,21 @@ def impact(results, s: dict | None = None) -> dict[str, float]:
     return out
 
 
+def score_delta(now_results, new_results, stage: Stage, s: dict | None = None) -> float | None:
+    """What a counterfactual adds to the unrounded score: the width of the band times the difference of the two band terms
+    (`_term`, the one place of the formula), each term held to 0..1 so the new score stays inside the band. Both result
+    lists are rated the same way as the score (`_rated`). None in EARLY: its score is level progress and the Ultimate
+    resistances, not the band term."""
+    if stage == Stage.EARLY:
+        return None
+    s = s or settings(None)
+    width = BAND[stage][1]
+
+    def term(results):
+        return min(max(_term(*_parts(_rated(results), s), s), 0.0), 1.0)
+    return width * (term(new_results) - term(now_results))
+
+
 def score(ctx, snap, stage: Stage, results, s: dict | None = None) -> dict:
     """The score (N2): R = weighted share met over all rated targets, M = weighted reserve over the margin
     targets only (`margin: true` in targets.json; a floor target without a reserve is left out, not counted as 0 - N2 over N1), R_floor = weighted share met over the floor targets;
