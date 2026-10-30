@@ -6,12 +6,14 @@ Reads your Grim Dawn character saves on your PC and shows what holds the build b
 
 Website: <https://slovi21.github.io/grim-dawn-build-check/> · [Example report](https://slovi21.github.io/grim-dawn-build-check/example.html)
 
+No install? [Check a character in your browser](https://slovi21.github.io/grim-dawn-build-check/check.html): your save never leaves your browser.
+
 ## What the report shows
 
-- **Where you stand:** your stage (early, mid, endgame), a score from 0 to 100 and a rating for each area: health, resistances, damage and more.
-- **Top issues:** what holds the build back, worst first, with the numbers behind it.
-- **Do this next:** concrete fixes, each with what it gains and what it costs.
-- **Boss preparation:** which bosses are a risk for this character, and why.
+- **Where you stand:** your stage (early, mid, endgame), a score from 0 to 100, the endgame gates that are still open and the next steps, fastest first.
+- **Areas:** health, survival, resistances, bosses, damage, skills, devotions and more, each number next to its target.
+- **Improvements:** concrete fixes by area, each with what it gains and what it costs, and where to get it.
+- **How this is rated:** the targets, terms and data behind every number, one click away from each "Why".
 
 ## Install
 
@@ -24,6 +26,7 @@ The installer needs no administrator rights. It installs for the current user in
 ## Privacy
 
 - Your saves are read on your PC. Nothing is uploaded.
+- The browser check reads your save in memory inside the page: it never leaves your browser, and nothing is stored.
 - The source code is open, so you can check that.
 - Every release lists the SHA256 checksum of the installer in `SHA256SUMS.txt`. To compare it, run `certutil -hashfile GrimDawnBuildCheck-Setup.exe SHA256` in the folder with the download.
 
