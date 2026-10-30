@@ -31,6 +31,7 @@ APP_FILES = [
     ("gdcheck", "gdcheck"),
     ("lokal/gd_tools.py", "gd_tools.py"),
     ("installer/start.cmd", "start.cmd"),
+    ("installer/gdcheck.ico", "gdcheck.ico"),
     ("LICENSE", "LICENSE.txt"),
     ("VERSION.txt", "VERSION.txt"),
 ]
@@ -121,6 +122,10 @@ def stage(repo: Path, embed_zip: Path, out: Path) -> Path:
     repo, out = Path(repo).resolve(), Path(out).resolve()
     if out == repo or out in repo.parents:
         raise ValueError(f"refusing to stage into {out}: it contains the repository")
+    for src, _dst in APP_FILES:
+        if not (repo / src).exists():
+            hint = " (generate it with python tools/make_icon.py)" if src.endswith(".ico") else ""
+            raise ValueError(f"{src} is missing in {repo}{hint}")
     with zipfile.ZipFile(embed_zip) as z:
         names = [n for n in z.namelist() if "/" not in n]
         pths = [n for n in names if re.fullmatch(r"python3\d*\._pth", n)]

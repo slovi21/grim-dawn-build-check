@@ -115,6 +115,9 @@ h1 { font: 400 clamp(44px, 7vw, 68px)/0.95 var(--display); margin: 0; letter-spa
 .facts div { display: flex; flex-direction: column; }
 .facts dt { font: 500 13px/1.2 var(--narrow); color: var(--dim); }
 .facts dd { margin: 0; font: 600 17px/1.3 var(--narrow); }
+.who-side { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.copy { font: 600 14px/1 var(--narrow); color: var(--ash); background: transparent; border: 1px solid var(--seam); border-radius: 4px; padding: 8px 12px; cursor: pointer; }
+.copy:hover { color: var(--bone); background: var(--plate); }
 .stale { margin: 14px 0 0; font-size: 14px; color: var(--risk); }
 
 .verdict { margin: 40px 0 52px; font: 400 clamp(24px, 3.2vw, 31px)/1.25 var(--display); max-width: 30em; }
@@ -384,5 +387,44 @@ SCRIPT = r"""
     reveal(id, !reduce);
   });
   if (location.hash) reveal(location.hash.slice(1), false);
+
+  var copyBtn = document.querySelector('button.copy');
+  var copyNote = copyBtn && copyBtn.parentNode.querySelector('.copy-note');
+  var copyTimer = null;
+  function copyViaTextarea(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+    document.body.removeChild(ta);
+    copyBtn.focus();
+    return ok;
+  }
+  function copyText(text) {
+    var asked = null;
+    try { asked = navigator.clipboard.writeText(text); } catch (err) { asked = null; }
+    if (!asked || typeof asked.then !== 'function') return Promise.resolve(copyViaTextarea(text));
+    return asked.then(function () { return true; }, function () { return copyViaTextarea(text); });
+  }
+  function copyShow(ok) {
+    copyBtn.textContent = ok ? 'Copied' : 'Copy failed';
+    if (copyNote) copyNote.textContent = ok ? 'Summary copied to the clipboard.' : 'The summary could not be copied.';
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(function () {
+      copyBtn.textContent = 'Copy summary';
+      if (copyNote) copyNote.textContent = '';
+    }, 2000);
+  }
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function () {
+      copyText(copyBtn.getAttribute('data-copy') || '').then(copyShow);
+    });
+  }
 })();
 """

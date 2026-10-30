@@ -1,3 +1,4 @@
 # Windows batch files and the Inno Setup script need CRLF whatever core.autocrlf says.
 *.cmd text eol=crlf
 *.iss text eol=crlf
+*.ico binary

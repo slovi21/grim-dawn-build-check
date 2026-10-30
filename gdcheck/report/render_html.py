@@ -3,7 +3,8 @@
 `render(rep)` asks `rep.view()` for the `ReportView` (built lazily, only here) and formats its four blocks: the overview (stage
 track, gate tiles, steps, watch-outs), the area panels, the improvements and the explanation tables. It builds nothing and rates
 nothing; every string it prints is escaped. The page has no external resource: the fonts are embedded (`render_assets`), the
-script only toggles the order of the improvements and opens the explanation a link points into.
+script only toggles the order of the improvements, opens the explanation a link points into and copies the short text of the
+"Copy summary" button (`view_share.summary`, carried escaped in its `data-copy`).
 
 Contract with the sweep: `data-block` is `overview`, `areas`, `improve` or `explain`; a suggestion carries `data-proposal`,
 `data-effort` and `data-status`. Element ids: `p-` panels, `a-` areas, `s-` suggestions, `n-` notes, `x-` explanation rows."""
@@ -13,6 +14,7 @@ import html
 
 from .render_assets import CSS, FONT_FILES, SCRIPT, font_faces
 from .view_improve import PERMANENT_PREFIX
+from .view_share import summary
 
 __all__ = ["CSS", "FONT_FILES", "SCRIPT", "font_faces", "render"]
 
@@ -38,6 +40,12 @@ SPRITE = ('<svg width="0" height="0" style="position:absolute" aria-hidden="true
 
 def e(t) -> str:
     return html.escape(str(t))
+
+
+def _attr(text) -> str:
+    """Text for an attribute value: escaped, and the colon written as a character reference (the browser reads the same text;
+    the page then holds no `https://` outside a link, which the tests of the page and the sweep look for as an external load)."""
+    return e(text).replace(":", "&#58;")
 
 
 def _tone(status) -> str:
@@ -197,8 +205,11 @@ def _overview(o) -> str:
     watch = ('<ul class="warn">' + "".join(_watch(w) for w in o.watch) + "</ul>" if o.watch
              else '<p class="calm">Nothing to watch out for.</p>')
     facts = "".join(f"<div><dt>{e(f.label)}</dt><dd>{e(f.value)}</dd></div>" for f in o.facts)
+    share = (f'<div><button type="button" class="copy" data-copy="{_attr(summary(o))}">Copy summary</button>'
+             '<span class="sr copy-note" aria-live="polite"></span></div>')
     return (f'<header class="hero" data-block="overview"><div class="wrap"><div class="who"><div><h1>{e(o.name)}</h1>'
-            f'<p class="class"><b>{e(o.cls)}</b> {e(o.masteries)}</p></div><dl class="facts">{facts}</dl></div>{stale}'
+            f'<p class="class"><b>{e(o.cls)}</b> {e(o.masteries)}</p></div>'
+            f'<div class="who-side"><dl class="facts">{facts}</dl>{share}</div></div>{stale}'
             f'<p class="verdict">{e(o.verdict)}</p>{_track(o.track)}{gates}'
             f'<div class="now"><div><h2>Do next, fastest first</h2>{steps}{lever}</div>'
             f'<div><h2>Watch out</h2>{watch}</div></div></div></header>')

@@ -185,6 +185,7 @@ function showResult(msg) {
   els.host.textContent = "";
   const frame = document.createElement("iframe");
   frame.setAttribute("sandbox", "allow-scripts");                        // scripts of the report, no same-origin access
+  frame.setAttribute("allow", "clipboard-write");                        // only for the report's "Copy summary" button
   frame.setAttribute("title", "Build check report");
   frame.setAttribute("data-testid", "report");
   frame.id = "report";

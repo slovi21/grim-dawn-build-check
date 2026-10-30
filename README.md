@@ -6,7 +6,7 @@ Reads your Grim Dawn character saves on your PC and shows what holds the build b
 
 Website: <https://slovi21.github.io/grim-dawn-build-check/> · [Example report](https://slovi21.github.io/grim-dawn-build-check/example.html)
 
-No install? [Check a character in your browser](https://slovi21.github.io/grim-dawn-build-check/check.html): your save never leaves your browser.
+No install? [Check a character in your browser](https://slovi21.github.io/grim-dawn-build-check/check.html): your save never leaves your browser. It needs Chrome or Edge 112, Firefox 114 or Safari 16.4 (or newer): WebAssembly and module workers.
 
 ## What the report shows
 

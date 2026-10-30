@@ -19,6 +19,7 @@ from ..analysis import targets as TGT
 
 ROOT = Path(__file__).resolve().parents[2]
 BEGIN, END = "<!-- targets:begin -->", "<!-- targets:end -->"
+CBEGIN, CEND = "<!-- contents:begin -->", "<!-- contents:end -->"
 
 
 def _threshold(t) -> str:
@@ -73,6 +74,17 @@ def splice(text: str, block: str, heading: str) -> str:
     return text.rstrip("\n") + f"\n\n{heading}\n\n{BEGIN}\n{block}\n{END}\n"
 
 
+def splice_contents(text: str) -> str:
+    """Keep a '## Contents' block (list of all '## ' headings) right after the first line of the document."""
+    if CBEGIN not in text:
+        first, _, rest = text.partition("\n")
+        text = f"{first}\n\n## Contents\n\n{CBEGIN}\n{CEND}\n\n{rest.lstrip(chr(10))}"
+    a, b = text.index(CBEGIN) + len(CBEGIN), text.index(CEND)
+    outside = text[:a] + text[b:]
+    heads = [ln[3:].strip() for ln in outside.splitlines() if ln.startswith("## ") and ln[3:].strip() != "Contents"]
+    return text[:a] + "\n" + "\n".join(f"- {h}" for h in heads) + "\n" + text[b:]
+
+
 def splice_html(text: str, block: str) -> str:
     if BEGIN in text and END in text:
         return splice(text, block, "")
@@ -92,8 +104,8 @@ def outputs(data: dict | None = None, root: Path = ROOT) -> dict:
     page = root / "references" / "grim-dawn-mechanics.html"
     res = {}
     if md_path.exists():
-        res[md_path] = splice(md_path.read_text(encoding="utf-8"), markdown(data),
-                              "## Targets used by the check (generated)")
+        res[md_path] = splice_contents(splice(md_path.read_text(encoding="utf-8"), markdown(data),
+                                              "## Targets used by the check (generated)"))
     if page.exists():
         res[page] = splice_html(page.read_text(encoding="utf-8"), html_table(data))
     return res

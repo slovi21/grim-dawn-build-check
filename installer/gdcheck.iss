@@ -26,6 +26,9 @@ LicenseFile={#StageDir}\LICENSE.txt
 OutputBaseFilename=GrimDawnBuildCheck-Setup
 VersionInfoVersion={#AppVersion}
 UninstallDisplayName=Grim Dawn Build Check
+; SetupIconFile is relative to the folder of this script (installer/); the same file is staged as {app}\gdcheck.ico.
+SetupIconFile=gdcheck.ico
+UninstallDisplayIcon={app}\gdcheck.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -42,8 +45,8 @@ Type: filesandordirs; Name: "{app}\__pycache__"
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{autoprograms}\Grim Dawn Build Check"; Filename: "{app}\start.cmd"; WorkingDir: "{app}"
-Name: "{autodesktop}\Grim Dawn Build Check"; Filename: "{app}\start.cmd"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autoprograms}\Grim Dawn Build Check"; Filename: "{app}\start.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\gdcheck.ico"
+Name: "{autodesktop}\Grim Dawn Build Check"; Filename: "{app}\start.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\gdcheck.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\start.cmd"; Description: "Start Grim Dawn Build Check"; Flags: postinstall nowait skipifsilent shellexec
