@@ -66,6 +66,7 @@ class Report:
     detail: list           # Tables D1-...
     chat_hint: str = ""
     boss_legend: str = ""   # one line under the boss lines: what HIGH / MEDIUM / LOW mean (B2)
+    notes: list = field(default_factory=list)   # M19: calm sentences - the form that counts, unspent skill points, item values
     view_factory: object = field(default=None, repr=False, compare=False)    # () -> ReportView, set by build.build
     _view = None            # the built view (no field: not in to_dict, not compared)
 

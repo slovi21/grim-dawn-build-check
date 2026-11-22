@@ -236,7 +236,7 @@ def targets(ctx, snap, sources, base_path) -> list[TargetState]:
     raw_all = getattr(ctx.index, "bosse_roh", None) or {}
     from ..data import versioned as V
     ver, fp = V.index_identity(ctx.index)
-    meta = combat_meta(base_path, ver or "1.3.0.8", fp)
+    meta = combat_meta(base_path, ver or "1.3.1.2", fp)
     bench = benchmark_states(ctx, meta, adj, rr, shred)
     out = bench[:1]
     from ..data.bosses import defense_profile, skill_label

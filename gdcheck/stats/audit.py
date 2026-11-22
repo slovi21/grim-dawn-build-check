@@ -176,10 +176,10 @@ def audit(ctx, sources, snap) -> list[AuditRow]:
                                  tuple(sorted({_label(sources, e.source_id) for e in sh})),
                                  "only work with a shield in the off hand",
                                  tuple(sorted({e.source_id for e in sh}))))
-    # DEAD: devotion bonuses with an unmet weapon condition
+    # DEAD: devotion and skill bonuses with an unmet weapon condition (a two-handed weapon only; dualWieldOnly: M17, B5)
     wc = sorted({e.source_id for e in sources.effects if e.activity == Activity.WEAPON_CONDITION_UNMET})
     if wc:
-        rows.append(AuditRow("DEAD", "Devotion with a weapon condition",
+        rows.append(AuditRow("DEAD", "Devotion or skill with a weapon condition",
                              tuple(_label(sources, s) for s in wc), "condition not met by the active weapons",
                              tuple(wc)))
     order = {"STACKS": 0, "INDEPENDENT": 1, "STRONGEST ONLY": 2, "CURRENTLY WASTED": 3, "DEAD": 4}

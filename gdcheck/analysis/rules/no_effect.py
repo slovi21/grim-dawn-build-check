@@ -10,9 +10,10 @@ per constellation); conversion grimdawn.fandom.com/wiki/Game_Mechanics and Crate
 """
 from __future__ import annotations
 
+from ...domain.activity import DUAL_WIELD_ONLY
 from ..damage_types import CONVERSION_TYPES, main_damage
 from ..effect_uptime import with_buff
-from ..save_facts import (DEVOTION_WEAPON, EFFECT_PERMANENT, EFFECT_TOGGLE, RuleContext,
+from ..save_facts import (DEVOTION_WEAPON, EFFECT_PERMANENT, EFFECT_TOGGLE, EFFECT_WEAPON_CONDITION, RuleContext,
                           conversion_entries, parent_skill, weapon_categories)
 from .findings import ERROR, NOTE, Finding, points
 
@@ -29,10 +30,48 @@ _CONVERTING_PARTS = ("basename", "prefix_name", "suffix_name", "modifier_name", 
                      "relic_bonus", "augment_name", "ascended_name", "ascended_2h_name")
 
 
+def _weapon_names(main, off) -> str:
+    """The active weapons by the end of their class name ("Axe2h", "Sword"), 'none' without any."""
+    return ", ".join(t.replace("WeaponMelee_", "").replace("WeaponHunting_", "").replace("WeaponArmor_", "")
+                     for t in main + off if t) or "none"
+
+
+def _dual_wield_lost(ctx: RuleContext) -> Finding | None:
+    """A1 for the skills the game database marks `dualWieldOnly` (Dual Blades, its weapon pool attacks, Breath of Belgothian,
+    Implements of War, Frenzied Cry) that hold points while the active weapon set is not two one-handed weapons (E2, found
+    with Cpt Blade: a two-hander in the hands switches Dual Blades off, and the check said nothing about its 16 points). One
+    finding for all of them, titled with the skill that holds the most points. None when no such skill has points or the
+    set is dual-wielded. When the OTHER weapon set holds two one-handed weapons the points are no wrong build, the player
+    swaps (Cpt Blade: a two-hander and two swords): a NOTE that names the swap instead of an ERROR."""
+    lost = sorted(((s.get("level", 0), DUAL_WIELD_ONLY[s["skill_name"]]) for s in ctx.skills
+                   if s.get("level", 0) >= 1 and s["skill_name"] in DUAL_WIELD_ONLY
+                   and ctx.effect_kind(s["skill_name"]) == EFFECT_WEAPON_CONDITION), key=lambda x: (-x[0], x[1]))
+    if not lost:
+        return None
+    names = [n for _p, n in lost]
+    more = len(names) - 1
+    head = names[0] if not more else f"{names[0]} and {more} more skill{'' if more == 1 else 's'}"
+    main, off = ctx.weapon_types()
+    total = f"{points(sum(p for p, _n in lost), 'skill point')} in {', '.join(names)}"
+    rule = "Requirement: two one-handed weapons (the game's dualWieldOnly)."
+    if ctx.other_set_dual_wields():
+        return Finding(
+            "A1", "A", NOTE, f"{head}: only active with your other weapon set",
+            f"{total}. {rule} Active weapons: {_weapon_names(main, off)}; your other weapon set holds two one-handed "
+            f"weapons. The skills do not act in the set in your hands; the values of this check are for that set.",
+            "Game data (dualWieldOnly)",
+            "Switch weapon sets (default key X) to use them; with this set they are lost points.")
+    return Finding(
+        "A1", "A", ERROR, f"{head}: weapon requirement not met",
+        f"{total}. {rule} Active weapons: {_weapon_names(main, off)}. The skills do not act.",
+        "Game data (dualWieldOnly)",
+        f"Wield two one-handed weapons, or move the points out of {names[0] if not more else 'these skills'}.")
+
+
 def check_a1(ctx: RuleContext) -> list[Finding]:
     """A1: devotion points in a constellation whose weapon condition the active weapon set does not
-    meet (ERROR). A1b: a constellation whose condition is met but which is not taken (NOTE; never
-    for the two-handed condition)."""
+    meet (ERROR); the same for skill points in a `dualWieldOnly` skill (E2, `_dual_wield_lost`). A1b: a constellation
+    whose condition is met but which is not taken (NOTE; never for the two-handed condition)."""
     main, off = ctx.weapon_types()
     present = weapon_categories(main, off)
     nodes: dict = {}
@@ -48,15 +87,16 @@ def check_a1(ctx: RuleContext) -> list[Finding]:
         condition, text = DEVOTION_WEAPON[name]
         if condition in present:
             continue
-        weapons = ", ".join(t.replace("WeaponMelee_", "").replace("WeaponHunting_", "")
-                            .replace("WeaponArmor_", "") for t in main + off if t) or "none"
         out.append(Finding(
             "A1", "A", ERROR, f"{name}: weapon requirement not met",
             f"{points(len(recs), 'devotion point')} in {name}. Requirement: {text}. "
-            f"Active weapons: {weapons}. The bonuses do not apply.",
+            f"Active weapons: {_weapon_names(main, off)}. The bonuses do not apply.",
             "Wiki (constellation page)",
             f"Move the points out of {name} - first check whether its affinity "
             f"is needed by other constellations."))
+    dual = _dual_wield_lost(ctx)
+    if dual is not None:
+        out.append(dual)
     for name, (condition, text) in DEVOTION_WEAPON.items():
         if condition in present and name not in nodes and condition != "two_handed":
             out.append(Finding(

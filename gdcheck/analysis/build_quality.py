@@ -33,7 +33,7 @@ from dataclasses import dataclass, replace
 from ..mechanics.policy import Confidence, rule
 from . import generators as GEN
 from .proposals.generated import stage_targets
-from .save_facts import EFFECT_SKILL_ONLY
+from .save_facts import EFFECT_SKILL_ONLY, EFFECT_WEAPON_CONDITION
 
 SECTIONS = ("skills", "devotions")
 RISK_FROM = 5.0         # wasted value points from which the status is RISK
@@ -71,11 +71,13 @@ class SkillMove:
     points: int
     loss: float
     gain: float
+    dead: bool = False          # E2: the skill does nothing for this build (weapon condition not met): its points are lost
 
     @property
     def unvalued(self) -> bool:
-        """The points come from a skill with no modelled value (loss 0): a model gap, not proof of waste."""
-        return self.loss < NO_VALUE
+        """The points come from a skill with no modelled value (loss 0): a model gap, not proof of waste. Not so for a dead
+        skill (E2): its value is 0 because it does not act at all, the points are lost - the move is waste."""
+        return self.loss < NO_VALUE and not self.dead
 
 
 @dataclass(frozen=True)
@@ -203,6 +205,9 @@ def _skill_notes(entry: dict, moves) -> str:
     parts = [entry.get("note") or ""]
     if entry.get("mastery"):
         parts.append("mastery bar")
+    elif entry.get("effect") == EFFECT_WEAPON_CONDITION:                                # E2
+        parts.append("only active with your other weapon set" if entry.get("other_set")
+                     else "weapon requirement not met: the points have no effect")
     elif entry.get("rated") and _no_value(entry):
         parts.append("no value on the scale (its effect may not be modelled)")
     own = entry.get("own_next")
@@ -265,7 +270,7 @@ def from_raw(raw: dict) -> BuildQuality:
     if problems:
         return _empty(error="; ".join(problems))
     sk, dv = raw["skills"], raw["devotions"]
-    moves = tuple(SkillMove(m["from"], m["to"], int(m["points"]), float(m["loss"]), float(m["gain"]))
+    moves = tuple(SkillMove(m["from"], m["to"], int(m["points"]), float(m["loss"]), float(m["gain"]), bool(m.get("dead")))
                   for m in sk.get("merged") or [])
     entries = sk.get("entries") or []
     skills = tuple(by_weight(SkillValue(

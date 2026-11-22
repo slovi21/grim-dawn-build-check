@@ -9,7 +9,6 @@ from ..combat import actions as ACT
 from ..combat import frames as FR
 from ..combat import rate as RATE
 from ..combat import target_state as TS
-from ..domain import loader
 from ..domain.enums import Stage
 from ..stats import audit as AUD
 from ..stats import sheet as SH
@@ -21,6 +20,7 @@ from . import build_quality as BQ
 from . import combat_check as CC
 from . import issues as ISS
 from . import readiness as RD
+from . import requirements as REQ
 from . import stage as STG
 from . import targets as TGT
 from .proposals import consumables as CON
@@ -58,13 +58,21 @@ class Analysis:
     area_facts: object = None     # .70: AreaFacts (sustain, main damage types, resistance share)
     benchmark: object = None      # .72: analysis.benchmark.Benchmark (Training Dummy, Mogara); None = not measured
     build_quality: object = None  # .72: analysis.build_quality.BuildQuality; None = the build check did not run
+    disabled: tuple = ()          # .85: analysis.requirements.DisabledItem - worn items the game switches off
 
 
 def run(ctx, sources=None, detail: bool = False, generator_override=None) -> Analysis:
     """generator_override (detail run only): {section: fn(inp, profile)} replaces a candidate generator -
-    the hook that checks a generator failure end to end (proposals.generated)."""
-    sources = sources or loader.build_sources(ctx.character, ctx.index)
-    snap = SH.build(ctx, sources)
+    the hook that checks a generator failure end to end (proposals.generated).
+    Without `sources` the character is analysed as the game runs it: worn items whose attribute requirement is not met
+    are taken out first (analysis.requirements, .85); ctx then holds the character without them. With `sources` the
+    caller's sources are used as they are: no item is taken out and `disabled` stays () - no production path does that
+    (CLI, overview, online check and exports call it without sources; review .85, MINOR 9)."""
+    disabled = ()
+    if sources is None:
+        ctx, sources, snap, disabled = REQ.active_state(ctx)
+    else:
+        snap = SH.build(ctx, sources)
     aud = AUD.audit(ctx, sources, snap)
     tstates = TS.targets(ctx, snap, sources, ROOT)
     shred = TS.da_shred(snap, sources)
@@ -90,7 +98,7 @@ def run(ctx, sources=None, detail: bool = False, generator_override=None) -> Ana
     extra = {"da_shred": shred["total"], **AF.target_inputs(facts), **BM.target_inputs(bench)}
     results = TGT.evaluate(ctx, snap, stg, data, extra, melee)
     sc = RD.score(ctx, snap, stg, results, RD.settings(data))
-    issues = ISS.issues(ctx, snap, sources)
+    issues = ISS.issues(ctx, snap, sources, disabled)
     quality = BQ.assess(ctx, snap, {r.id: r for r in results}, melee, pet=(arch == "pet"),
                         early=(stg is Stage.EARLY)) if ctx.options.build_quality else None
     areas = RD.areas(results, issues, facts, quality)
@@ -109,4 +117,4 @@ def run(ctx, sources=None, detail: bool = False, generator_override=None) -> Ana
     checks = CC.check(ctx, sources, snap, acts, tstates, ctx.options.onslaught or 0, procs, fm)
     return Analysis(ctx, sources, snap, aud, acts, ons, tstates, shred, arch, stg, fails, results, sc,
                     areas, issues, bosses, props, player, rates, extra, checks, CC.plausibility(ctx, checks), facts,
-                    bench, quality)
+                    bench, quality, disabled)

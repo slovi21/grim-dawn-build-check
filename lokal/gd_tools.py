@@ -952,7 +952,7 @@ def index_meta(pfad: Path) -> dict:
 
 
 # Muss zu gdcheck.app.index_build.INDEX_SCHEMA passen.
-INDEX_SCHEMA = 9
+INDEX_SCHEMA = 12
 ZUSTAND = {"missing": "fehlt", "stale": "veraltet", "unchecked": "ungeprueft", "current": "aktuell",
            "unknown": "unbekannt"}
 

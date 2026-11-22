@@ -12,7 +12,7 @@ from pathlib import Path
 from . import index_cache
 from .text import FACTION_FALLBACK_NAMES, FACTION_SLOT_KEYS, clean_text, ist_wertname, short
 
-SUPPORTED_SCHEMA = 9
+SUPPORTED_SCHEMA = 12
 # The most an index of the online check may be once unpacked. The web index of the golden game data is 33.0 MB (31.4 MiB;
 # the whole index, with the loot tables, 130 MiB and never online): 128 MiB leaves room to grow and stops a small file
 # that unpacks to gigabytes (a gzip bomb with matching checksums) before it is parsed.
@@ -50,7 +50,7 @@ def read_json(path: Path, max_bytes: int | None = None) -> dict:
 
 
 class GameIndex:
-    """Game data from a gd-index-*.json.gz (schema 9). Same interface as the
+    """Game data from a gd-index-*.json.gz (schema 10). Same interface as the
     .35 IndexDB, so the frozen candidate generators can use it unchanged."""
 
     def __init__(self, pfad: str | Path, daten: dict | None = None, loaders: dict | None = None):

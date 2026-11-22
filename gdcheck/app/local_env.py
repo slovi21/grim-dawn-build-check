@@ -36,7 +36,7 @@ from . import product
 
 ROOT = Path(__file__).resolve().parents[2]
 MODES = ("windows", "wsl", "mounted", "none")
-INDEX_SCHEMA = 9                        # must match gdcheck.app.index_build.INDEX_SCHEMA
+INDEX_SCHEMA = 12                       # must match gdcheck.app.index_build.INDEX_SCHEMA
 SAVE_DEPTH = 3                          # save\main\_<Name>, save\user\_<Name>, mod branches
 MOUNT_DEPTH = 4
 MOUNT_MAX_DIRS = 4000                   # folders the mount scan classifies at most

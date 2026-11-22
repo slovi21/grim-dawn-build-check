@@ -38,7 +38,8 @@ def table_text(t) -> list[str]:
 
 def render(rep, views=("player", "expert")) -> str:
     h = rep.header
-    out = _wrap(f"{h['name']} - Level {h['level']} {h['class']} - {h['difficulty']} - {h['stage']}")
+    out = _wrap(f"{h['name']} - Level {h['level']} {h['class']} - {h['difficulty']} - {h['stage']}"
+                + (f" - {h['form']}" if h.get("form") else ""))
     out += _wrap(h["version"] + f" - Profile: {h['profile']}")
     for w in rep.warnings:
         out += ["", *_wrap("WARNING: " + w)]
@@ -68,6 +69,9 @@ def render(rep, views=("player", "expert")) -> str:
         out += _wrap(f"  {rep.boss_legend}", 2)
     if not rep.bosses:
         out.append("  starts at MID")
+    notes = getattr(rep, "notes", None)
+    if notes:                                   # M19: the calm sentences, one paragraph at the end of the player view
+        out += ["", *_wrap("Notes: " + " ".join(notes))]
     if "expert" in views:
         out += ["", "=" * WIDTH, "EXPERT VIEW"]
         for t in rep.expert:

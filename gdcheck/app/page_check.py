@@ -2,8 +2,8 @@
 mechanik_seite; GD-Tools runs it at the start).
 
 The page carries in its head the game version and the fingerprint of the game data it was written for:
-    <meta name="gd-version" content="1.3.0.8">
-    <meta name="gd-fingerprint" content="0e250f41e62ddc25">
+    <meta name="gd-version" content="1.3.1.2">
+    <meta name="gd-fingerprint" content="b08392ba0d4b7497">
 If the fingerprint of the current game data (or of the index) differs, a patch came out - then the
 page has to be updated in Claude.
 """

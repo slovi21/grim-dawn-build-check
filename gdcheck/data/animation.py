@@ -65,7 +65,7 @@ def _load(prefix: str, version: str, folder: Path | None = None) -> tuple[dict, 
     return {}, ""
 
 
-def tables(version: str = "1.3.0.8", folder: str | None = None, fingerprint: str | None = None) -> dict:
+def tables(version: str = "1.3.1.2", folder: str | None = None, fingerprint: str | None = None) -> dict:
     """The animation tables that fit the game data (data.versioned: fingerprint > label > newest
     older version); {} if no file is there. '_version' = version of the file used, '_note' = why it
     may not fit (ASSUMED). `folder` replaces references/ and switches the extra folders off (tests)."""
@@ -83,7 +83,7 @@ def tables(version: str = "1.3.0.8", folder: str | None = None, fingerprint: str
 tables.cache_clear = lambda: None           # type: ignore[attr-defined]  # no cache any more (.53)
 
 
-def frames_table(version: str = "1.3.0.8", folder: str | None = None, pc_out: str | None = None) -> dict:
+def frames_table(version: str = "1.3.1.2", folder: str | None = None, pc_out: str | None = None) -> dict:
     """Frame table of the skill (references/) plus the asset frames the PC tool read from the installed
     game (ClaudeSkill-Data/out/anim-frames-<version>.json, or a patch bundle in GDCHECK_DATA_DIR) - see
     the version guard in the docstring. The environment is read here, outside the cache (.53)."""

@@ -36,6 +36,17 @@ def table(index, name) -> dict:
     return (getattr(index, "tabellen", None) or {}).get(name) or {}
 
 
+COST_PREFIX = "records/game/itemcostformulas"
+
+
+def cost_formulas(index, name) -> dict:
+    """The equations ({field: text}) of the cost record `name` of an item (its `itemCostName`, index schema 10); {} when
+    the index does not carry that record (an older index, or no cost record): then no requirement is known."""
+    if not isinstance(name, str) or not name.lower().startswith(COST_PREFIX):
+        return {}
+    return {k: v for k, v in table(index, name.lower()).items() if isinstance(v, str) and k.endswith("Equation")}
+
+
 def attribute_constants(index) -> dict:
     lv, pc = table(index, T_LEVELS), table(index, T_PC)
     inc = float(lv.get("strengthIncrement", 8))

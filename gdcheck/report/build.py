@@ -8,11 +8,14 @@ import re
 
 from ..analysis import guide as GD
 from ..analysis import readiness as RD
+from ..analysis import requirements as REQ
 from ..analysis.readiness import AREAS
 from ..data.text import field_label
+from ..domain.context import onslaught_source
 from . import area_text as AT
 from . import build_tables as BT
 from . import common as CM
+from . import notes as NT
 from . import view_areas as VA
 from . import view_explain as VX
 from . import view_improve as VI
@@ -72,7 +75,8 @@ def version_line(ctx, meta) -> tuple[str, list]:
         live = ctx.options.live_version or "your installed game"
         txt = f"Game data {gv} - DOES NOT MATCH {live}"
         warnings.append(f"Game data {gv} does not match {live}: item values and rules may be "
-                        "outdated - rebuild the game data with GD-Tools before acting on the advice.")
+                        "outdated until the game data are updated (installer: rebuild them with GD-Tools; online check: "
+                        "the site is updated after the next release). Check the advice before you act on it.")
     else:
         txt = f"Game data {gv} - live patch not checked"
     if meta.get("mechanics_note"):
@@ -86,6 +90,10 @@ def version_line(ctx, meta) -> tuple[str, list]:
 
 def player_issues(a) -> list[PlayerIssue]:
     out = []
+    # .85 (decision 69): worn items the game switches off come first - without them every other number is the game's
+    off = REQ.texts(getattr(a, "disabled", ()) or ())
+    if off:
+        out.append(PlayerIssue(off["short"], short_why(off["fix"]), "disabled"))
     for i in a.issues:
         if i.self_penalty:
             title = re.sub(r"^\s*drawback for you:\s*", "", i.title, flags=re.I)
@@ -96,7 +104,7 @@ def player_issues(a) -> list[PlayerIssue]:
             out.append(PlayerIssue(f"Drawback for you: {title} - {short}".rstrip(" -"), _penalty_why(detail),
                                    "self_penalty"))
     for i in a.issues:
-        if i.severity == "ERROR" and not i.self_penalty:
+        if i.severity == "ERROR" and not i.self_penalty and getattr(i, "code", "") != "G0":
             out.append(PlayerIssue(_issue_title(i), short_why(i.fix), "error"))
     imp = (getattr(a, "score", None) or {}).get("impact", {})          # stand-ins have no score: impact 0, then fact, then id
     key = lambda r: (-imp.get(r.id, 0.0), r.basis != "fact", r.id)       # noqa: E731
@@ -313,6 +321,9 @@ def e1(a) -> Table:
              "sheet = as the game's character sheet shows it. " + _purge_line(a)]
     if a.stage_fails:                           # .72: one note (a note costs two Markdown lines, the Expert View has 150)
         notes[0] += " Not ENDGAME yet: " + "; ".join(a.stage_fails[:4])
+    choice = NT.form_of(a)
+    if choice is not None:                      # M19 (decision 67): every value here is the form's; the note ends with it
+        notes[0] += " " + NT.form_sentence(choice, NT.name_of(a.ctx.index))
     if any(r.id.startswith("ravager_") for r in a.results):
         from ..analysis.bosses import boss_rr
         rr, src = boss_rr(a.ctx.index)
@@ -388,7 +399,8 @@ def e2(a) -> Table:
         sp = a.onslaught[0]
         notes.append(f"{sp.label} by Onslaught stacks: " + " / ".join(
             f"{o.onslaught}: {_n(o.direct)}" for o in a.onslaught)
-            + " per hit (+15% per stack, own multiplier after all other bonuses - Crate)")
+            + f" per hit (+{_onslaught_pct(a.ctx)}% per stack, own multiplier after all other bonuses - "
+            + onslaught_source(a.ctx) + ")")
     shred = (f"DA shred on the target: {_n(a.da_shred['total'])} ({'; '.join(a.da_shred['parts']) or 'none'}). "
              "Per hit = no crit, no target; vs target = expected hit + DoT per second, incl. resistances "
              "after your RR, PtH/crit vs the target DA, physical hits minus target armor. Per second values: "
@@ -404,6 +416,9 @@ def e2(a) -> Table:
                  + (f"; capped at max Health ({_n(max_health)})" if capped else "") + ". Confidence = weakest rule "
                  "of the action's damage chain (conversion, Onslaught, both weapons, finale, armor piercing, expected hit "
                  "vs the target; X-009).")
+    choice = NT.form_of(a)
+    if choice is not None:                      # M19 (decision 67): the form's attacks only - the note says why no default attack
+        notes[0] = NT.attack_sentence(choice, NT.name_of(a.ctx.index)) + " " + notes[0]
     return Table("E2", "Damage per action", ["Skill", "Rank", "WD", "Per hit", "DoT/s", "vs Dummy",
                                              "vs Loghorrean", "vs Callagadra", "Life steal Loghorrean / Callagadra",
                                              "Confidence",
@@ -751,17 +766,25 @@ def e6(a, versions) -> Table:
         rows.append(["Unknown records", f"{unknown} items or skills of this save are not in the game data "
                                         f"{a.ctx.game_version} - a newer game patch?"])
     # .72: one row for the assumptions and the facts of the game database (a row costs a Markdown line, the Expert View 150)
-    rows.append(["Assumptions", "identical item auras count once (ASSUMED); monster level of bosses = your "
+    rows.append(["Assumptions", "an aura an item grants acts once per item (two items with the same aura both act, "
+                                "game test of 21.11.2026); set bonuses count the different worn "
+                                "pieces of a set; monster level of bosses = your "
                                 "level via the boss's charLevel equation (DERIVED; area cap ASSUMED); crits also "
                                 "scale DoT and boss Life Leech Resistance lowers life "
                                 "steal (TESTED by the community, no developer quote); from the game database: "
                                 "purge removes every buff, toggle and aura except notDispelable "
                                 "skills (Werewolf/Wereraven form); Ghoulish Hunger at 45% Health; "
-                                f"Onslaught +{100 * float(a.ctx.ruleset.get('onslaught_per_stack', 0.15)):g}% "
-                                "per stack after all other bonuses ("
-                                + ("not confirmed for this game version, ASSUMED" if "onslaught_per_stack" in
-                                   getattr(a.ctx, "rule_overrides", ()) else "Crate") + ")"])
+                                f"Onslaught +{_onslaught_pct(a.ctx)}% "
+                                "per stack after all other bonuses (" + onslaught_source(a.ctx) + ")"
+                                + ("; a weapon swap or an area change wipes the stacks (Crate; the check never "
+                                   "swaps weapons)" if a.ctx.ruleset.get("onslaught_wiped_on_swap") else "")])
     return Table("E6", "Basis", ["Item", "Value"], rows)
+
+
+def _onslaught_pct(ctx) -> str:
+    """The Onslaught value per stack of these game data in percent ("12" since 1.3.1, "15" before): E2 and E6 name the
+    value the engine computes with (review M14: the E2 note said 15% while the numbers used 12%)."""
+    return f"{100 * float(ctx.ruleset.get('onslaught_per_stack', 0.15)):g}"
 
 
 # ---------------------------------------------------------------------------
@@ -898,7 +921,8 @@ def build(a, versions: dict, meta: dict | None = None) -> Report:
         diff = f"{diff} (checked; last played {ch.difficulty_label})"
     header = {"name": ch.name, "level": ch.level, "class": class_line(ch), "difficulty": diff,
               "stage": a.stage.value, "hardcore": a.ctx.hardcore, "version": vline, "profile": profile,
-              "campaign": campaign}
+              "campaign": campaign,
+              "form": NT.form_label(NT.form_of(a), NT.name_of(a.ctx.index))}   # M19: "" without a levelled form
     readiness = {"score": a.score["score"], "label": f"Build Readiness {a.score['score']}/100 - {profile} ({a.stage.value})",
                  "parts": a.score["parts"], "band": BAND_TEXT[a.stage.value], "bands": RD.bands()}
     areas = [Area(n, STATUS_WORD[a.areas[n]["status"]], _int_text(AT.area_text(n, a.areas[n], a)), a.areas[n]["value"])
@@ -912,6 +936,7 @@ def build(a, versions: dict, meta: dict | None = None) -> Report:
               "game_version": a.ctx.game_version, "live_status": a.ctx.live_status.value},
         header=header, readiness=readiness, warnings=warnings, areas=areas,
         issues=issues, actions=actions, bosses=bosses, boss_legend=BOSS_LEGEND if bosses else "",
+        notes=NT.notes_of(a),
         expert=[e1(a), e2(a), e3(a), e4(a), e5(a), e6(a, versions)] + ([e7(a)] if a.combat_checks else []),
         detail=details(a),
         view_factory=lambda: view_of(a, GD.build_for(a), versions, meta))   # lazy: only render_html asks for the view

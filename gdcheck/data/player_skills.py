@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 
-def not_dispelable(version: str = "1.3.0.8", fingerprint: str | None = None) -> frozenset:
+def not_dispelable(version: str = "1.3.1.2", fingerprint: str | None = None) -> frozenset:
     """Records with notDispelable = 1 (a monster purge cannot remove them, e.g. werewolf1), from the
     player-skills file that fits the game data (data.versioned, .53)."""
     from . import versioned as V
@@ -18,7 +18,7 @@ def _frozen(_path: str, items: tuple) -> frozenset:
     return frozenset(items)
 
 
-def cooldown_refresh(version: str = "1.3.0.8", fingerprint: str | None = None) -> dict:
+def cooldown_refresh(version: str = "1.3.1.2", fingerprint: str | None = None) -> dict:
     """{record: {"skill", "chance" (% per rank), "amount" (s), "trigger"}} - records that reduce another
     skill's cooldown (refreshCooldown* fields, not in the index), from the player-skills file that fits the
     game data; {} for an older file without them."""

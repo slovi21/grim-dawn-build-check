@@ -108,6 +108,9 @@ ul.facts { margin: 0; padding: 0 0 0 1.1em; max-width: 36em; }
 footer { padding: 32px 0 56px; border-top: 1px solid var(--seam); font-size: 15px; color: var(--ash); }
 footer p { margin: 0 0 14px; max-width: 36em; }
 footer nav { display: flex; flex-wrap: wrap; gap: 6px 22px; }
+/* patch guard: shown by check/stale.mjs when the game data are older than the game */
+.stale { margin: 0; padding: 12px var(--gutter); background: var(--plate-2); border-bottom: 2px solid var(--risk); color: var(--bone); font: 500 16px/1.4 var(--narrow); text-align: center; }
+.live-status { margin: 24px 0 0; font-size: 15px; color: var(--ash); }
 </style>
 </head>
 <body>
@@ -122,15 +125,15 @@ footer nav { display: flex; flex-wrap: wrap; gap: 6px 22px; }
     <small>No install? <a href="check.html">Check a character in your browser</a>: your save never leaves your browser.</small>
   </div>
 
-  <figure class="sample" aria-label="Stage track from the example report: 51 of 100, mid game">
-    <div class="track" style="--v: 51">
-      <div class="marker">51</div>
+  <figure class="sample" aria-label="Stage track from the example report: 53 of 100, mid game">
+    <div class="track" style="--v: 53">
+      <div class="marker">53</div>
       <div class="band">Early</div>
       <div class="band cur">Mid</div>
       <div class="band">Endgame</div>
       <div class="fill"></div>
     </div>
-    <figcaption>From the <a href="example.html">example report</a>: a level 100 Sorceress, 51 of 100, mid game.</figcaption>
+    <figcaption>From the <a href="example.html">example report</a>: a level 100 Sorceress, 53 of 100, mid game.</figcaption>
   </figure>
 </header>
 
@@ -175,5 +178,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 6px 22px; }
 </footer>
 
 </main>
+<script type="module" src="check/stale.mjs"></script>
 </body>
 </html>

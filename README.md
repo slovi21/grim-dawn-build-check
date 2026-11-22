@@ -27,6 +27,7 @@ The installer needs no administrator rights. It installs for the current user in
 
 - Your saves are read on your PC. Nothing is uploaded.
 - The browser check reads your save in memory inside the page: it never leaves your browser, and nothing is stored.
+- The website asks two public sources once a day, on GitHub and not in your browser, which game version is current: the Steam news feed of Grim Dawn and the patch notes list of the Crate forum. It says so when its game data are older. Your browser only reads two small files of the site itself and shows the day of the last successful check; if a source could not be asked, its last known answer stays, and after three days without an answer the site says that it has not checked against that source.
 - The source code is open, so you can check that.
 - Every release lists the SHA256 checksum of the installer in `SHA256SUMS.txt`. To compare it, run `certutil -hashfile GrimDawnBuildCheck-Setup.exe SHA256` in the folder with the download.
 

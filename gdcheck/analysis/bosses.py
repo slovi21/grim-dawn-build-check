@@ -88,7 +88,7 @@ def _combat_bosses(idx) -> dict:
     from ..data import versioned as V
     from ..data.bosses import combat_meta
     ver, fp = V.index_identity(idx)
-    return combat_meta(ROOT, ver or "1.3.0.8", fp).get("bosses") or {}
+    return combat_meta(ROOT, ver or "1.3.1.2", fp).get("bosses") or {}
 
 
 @rule("ravager_rr", Confidence.DERIVED,

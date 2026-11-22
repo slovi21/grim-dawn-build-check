@@ -202,14 +202,14 @@ def load(db, basis: Path) -> tuple[dict, str]:
         return p, "game database (index)"
     from . import versioned as V
     ver, fp = V.index_identity(db)
-    r = V.resolve("bosse", ver or "1.3.0.8", fp, Path(basis) / "references")
+    r = V.resolve("bosse", ver or "1.3.1.2", fp, Path(basis) / "references")
     d = from_file(r.path) if r.path else {}
     if d:
         return d, f"game database (boss dump {r.label})" + (f" - {r.note}" if r.note else "")
     return {}, ""
 
 
-def combat_meta(basis: Path, version: str = "1.3.0.8", fingerprint: str | None = None) -> dict:
+def combat_meta(basis: Path, version: str = "1.3.1.2", fingerprint: str | None = None) -> dict:
     """references/boss-combat-<version>.json (refs_extract / tools/boss_extract.py) that fits the game
     data (data.versioned): level range and skill level equations per boss; {} if missing. '_note'
     says why the file may not fit (ASSUMED), '_file' names it."""

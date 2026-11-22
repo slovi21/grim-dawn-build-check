@@ -84,10 +84,10 @@ def reference_notes(index) -> tuple:
     ver, fp = V.index_identity(index) if index is not None else ("", "")
     notes = []
     for prefix in ("anim-tables", "boss-combat", "player-skills", "vendor-ranks", "design-data"):   # vendor ranks: gear.py, design data: design lint (.67)
-        r = V.resolve(prefix, ver or "1.3.0.8", fp)
+        r = V.resolve(prefix, ver or "1.3.1.2", fp)
         if r.note:
             notes.append(r.note)
-    ft = AD.frames_table(ver or "1.3.0.8")
+    ft = AD.frames_table(ver or "1.3.1.2")
     if ft.get("assets_note"):
         notes.append(str(ft["assets_note"]))
     return tuple(notes)
@@ -97,7 +97,7 @@ def _boss_data_version(index=None) -> str:
     """The boss-combat file the check really uses for this game data (.53: not simply the newest)."""
     from ..data import versioned as V
     ver, fp = V.index_identity(index) if index is not None else ("", "")
-    r = V.resolve("boss-combat", ver or "1.3.0.8", fp)
+    r = V.resolve("boss-combat", ver or "1.3.1.2", fp)
     if r.path is None:
         return "none"
     d = r.data

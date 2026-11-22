@@ -107,7 +107,7 @@ from ..data import stat_labels
 from ..data.describe import describe
 from ..data.text import EQUIP_SLOTS, short
 from ..domain.activity import DEVOTION_WEAPON as DEVOTION_WEAPON_CONDITION
-from ..domain.activity import buff_record, class_activity, parent_skill
+from ..domain.activity import DUAL_WIELD_ONLY, buff_record, class_activity, dual_wielding, parent_skill
 from ..domain.fields import STAT_PREFIXES, STAT_SKIP, conversions, leveled_fields, per_item
 
 __all__ = [
@@ -148,7 +148,8 @@ DEVOTION_WEAPON = {
     "Oklaine's Lantern": ("lantern", "scepter, dagger or caster off-hand"),
 }
 
-ITEM_PART_KEYS = ("basename", "prefix_name", "suffix_name", "modifier_name", "transmute_name",
+# no `transmute_name`: an illusion gives no values (B4, M17; see domain.character.ITEM_PARTS)
+ITEM_PART_KEYS = ("basename", "prefix_name", "suffix_name", "modifier_name",
                   "relic_name", "relic_bonus", "augment_name", "ascended_name", "ascended_2h_name")
 _WEAPON_SLOTS = ("Main hand", "Off hand")
 
@@ -239,9 +240,25 @@ def two_handed_active(doc) -> bool:
     return False
 
 
-def class_effect(cls: str) -> str | None:
-    """Effect kind from the skill class alone (None for modifiers/transmuters)."""
-    a = class_activity(cls)
+def dual_wield_active(doc, index) -> bool:
+    """Two one-handed weapons in the active weapon set (no fallback to set 1, like two_handed_active; M17, B5)."""
+    for ws in (_blocks(doc).get(3) or {}).get("weapon_sets", []):
+        if not ws.get("unused", False):
+            return dual_wielding([it for it in ws.get("items", []) if it and it.get("basename")], index)
+    return False
+
+
+def other_set_dual_wield(doc, index) -> bool:
+    """Two one-handed weapons in a weapon set that is NOT the active one (E2): a dualWieldOnly skill acts after a weapon swap.
+    Everything else of the analysis (sheet, fight, Kraken's A1) looks at the active set only."""
+    return any(dual_wielding([it for it in ws.get("items", []) if it and it.get("basename")], index)
+               for ws in (_blocks(doc).get(3) or {}).get("weapon_sets", []) if ws.get("unused", False))
+
+
+def class_effect(cls: str, rec_name: str = "") -> str | None:
+    """Effect kind from the skill class alone (None for modifiers/transmuters); the record name only tells a buff a player
+    class casts (domain.activity.cast_buff, M18) from the same class on a devotion power or an item."""
+    a = class_activity(cls, rec_name)
     return a.value if a is not None else None
 
 
@@ -253,8 +270,10 @@ def skill_effect(rec_name: str, rec, index, doc=None) -> tuple[str, str]:
         if rec_name.startswith(prefix) and condition == "two_handed" and doc is not None \
                 and not two_handed_active(doc):
             return EFFECT_WEAPON_CONDITION, f"{name}: two-handed weapon only"
+    if rec_name in DUAL_WIELD_ONLY and doc is not None and not dual_wield_active(doc, index):
+        return EFFECT_WEAPON_CONDITION, f"{DUAL_WIELD_ONLY[rec_name]}: two one-handed weapons only (dualWieldOnly)"
     cls = str((rec or {}).get("Class", ""))
-    kind = class_effect(cls)
+    kind = class_effect(cls, rec_name)
     if kind is not None:
         return kind, cls
     parent = parent_skill(rec_name, index)
@@ -267,7 +286,7 @@ def skill_effect(rec_name: str, rec, index, doc=None) -> tuple[str, str]:
     if any(t in bcls for t in ("Debuf", "Contageous")):
         return (EFFECT_ENEMY_DEBUFF, f"{cls} of {short(parent)}: debuff on enemies "
                                      f"({short(pbuff.get('_recordname', ''))})")
-    return class_effect(pcls) or EFFECT_PERMANENT, f"{cls} of {short(parent)} ({pcls})"
+    return class_effect(pcls, parent) or EFFECT_PERMANENT, f"{cls} of {short(parent)} ({pcls})"
 
 
 def form_of(rec_name: str, index) -> str | None:
@@ -305,6 +324,21 @@ def skill_bonuses(doc, index) -> dict:
                 name, lvl = rec.get(f"augmentSkillName{n}"), rec.get(f"augmentSkillLevel{n}")
                 if isinstance(name, str) and name and isinstance(lvl, (int, float)):
                     single[name] = single.get(name, 0) + int(lvl)
+    # gap 2: the set bonuses at the worn piece count - the same ranks as the sheet (domain.loader.item_sets)
+    from ..domain.fields import value_at
+    from ..domain.loader import worn_sets
+    for set_rec, bases in sorted(worn_sets(index, [it.get("basename") for it in worn_items(doc)]).items()):
+        rec = index.record(set_rec)
+        if not rec:
+            continue
+        pieces = len(bases)
+        every += int(value_at(rec.get("augmentAllLevel"), pieces) or 0)
+        for n in range(1, 6):
+            for target, nf, lf in ((mastery, f"augmentMasteryName{n}", f"augmentMasteryLevel{n}"),
+                                   (single, f"augmentSkillName{n}", f"augmentSkillLevel{n}")):
+                name, lvl = rec.get(nf), value_at(rec.get(lf), pieces)
+                if isinstance(name, str) and name and lvl:
+                    target[name] = target.get(name, 0) + int(lvl)
     return {"alle": every, "mastery": mastery, "einzeln": single}
 
 
@@ -614,6 +648,10 @@ class RuleContext:
 
     def effect_kind(self, rec_name) -> str:
         return skill_effect(rec_name, self.record(rec_name), self.index, self.doc)[0]
+
+    def other_set_dual_wields(self) -> bool:
+        """The weapon set that is not in the hands holds two one-handed weapons (E2: a dualWieldOnly skill acts after a swap)."""
+        return other_set_dual_wield(self.doc, self.index)
 
     def effective_level(self, rec_name) -> int:
         """Rank incl. gear bonuses. Abilities of a shapeshift (werewolf1_skill01_claws) run at the

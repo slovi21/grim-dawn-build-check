@@ -8,12 +8,20 @@ on:
       - "web/**"
       - "gdcheck/**"
       - ".github/workflows/pages.yml"
+  # Once a day at a fixed time (not on the hour, when GitHub's queues are fullest): the run refreshes data/live.json and,
+  # in the job "notify", opens an issue when the live game version (Steam news feed and Crate forum, the higher one) is
+  # newer than the data of this site, and one when a source has not answered for more than three days.
+  # GitHub switches scheduled workflows of a public repository off after 60 days without repository activity (which events
+  # count is not documented; a commit does). Then no run happens any more and nobody is told, except by the line of the
+  # site itself: after three days it says that the game data have not been checked. What to do: make a real commit to main,
+  # or switch the workflow on again (Actions tab, workflow "Pages", "Enable workflow"; or `gh workflow enable Pages`).
+  schedule:
+    - cron: "17 5 * * *"
   workflow_dispatch:
 
+# Nothing is allowed by default; each job asks for what it needs (the job "deploy" alone holds pages and id-token).
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # One deployment at a time; never cancel one that is already running.
 concurrency:
@@ -21,16 +29,78 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Asks the two sources and writes data/live.json. The job holds NO special rights (only the read access to the repository
+  # that the checkout needs, no pages or id-token): what it reads from the network is untrusted, and the job that deploys
+  # must not be the one that parses it. The file goes to the other jobs as an artifact.
+  live:
+    # A private repository has no Pages site yet: the first pushes would only turn the run red.
+    if: ${{ !github.event.repository.private }}
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # The actions are pinned to the commit of their tag (a tag can be moved, a commit cannot); Dependabot proposes the next
+      # one every week (.github/dependabot.yml). The checkout keeps no token in .git/config.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      # The live.json that is published right now (this site's own Pages address), so that a day on which a source does not
+      # answer overwrites nothing: web/live_version.py keeps that source's last answer and the day of it (and, when no source
+      # names a version, the version and its date of the last good check). No answer
+      # (the first deployment, a network problem, a file that is too big) is no error: the step then leaves no file.
+      # The file is untrusted; web/live_version.py checks it strictly. Owner and repository name come from GITHUB_REPOSITORY:
+      # a scheduled run has no github.event.repository (its name would be empty and the address would end in "//data/...").
+      # Only HTTP 404 means "nothing published yet" (marker file previous-live.absent); every other failure leaves the
+      # question open, and the next step then refuses to write when a source fails too.
+      - name: Fetch the live.json published so far
+        run: |
+          owner=${GITHUB_REPOSITORY%%/*}; owner=${owner,,}; repo=${GITHUB_REPOSITORY#*/}
+          if [ "${repo,,}" = "$owner.github.io" ]; then base="https://$owner.github.io"; else base="https://$owner.github.io/$repo"; fi
+          prev="$RUNNER_TEMP/previous-live.json"; rm -f "$prev" "$RUNNER_TEMP/previous-live.absent"
+          if code=$(curl --fail --silent --show-error --location --proto-redir =https --retry 2 --max-time 10 --max-filesize 65536 --write-out '%{http_code}' --output "$prev" "$base/data/live.json"); then
+            echo "Fetched the earlier live.json."
+          else
+            rm -f "$prev"
+            if [ "$code" = 404 ]; then : > "$RUNNER_TEMP/previous-live.absent"; echo "No earlier live.json (HTTP 404): first publication."; else echo "The earlier live.json is not readable (HTTP $code)."; fi
+          fi
+      # The live game version, for the notice and the status line on the pages. web/live_version.py is fail-soft (exit 0
+      # whatever the sources do): a source that gives no version counts with its last answer from the earlier live.json;
+      # when none gives one, the earlier live.json is written again (or null and null).
+      # The one exception is --require-previous (exit 3, no file): a source gives no version AND the earlier file could not
+      # be read, so nothing may be overwritten and the old publication stays (the job fails, so "deploy" does not run).
+      # Only HTTP 404 on the earlier file lifts it.
+      # It reads the public Steam news feed and the patch-notes list of the Crate forum; the visitors' browsers never do.
+      - name: Write the live game version
+        run: |
+          require=--require-previous
+          if [ -f "$RUNNER_TEMP/previous-live.absent" ]; then require=""; fi
+          python web/live_version.py --out "$RUNNER_TEMP/live/live.json" --previous "$RUNNER_TEMP/previous-live.json" $require
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: live-json
+          path: ${{ runner.temp }}/live/live.json
+          if-no-files-found: error
+          retention-days: 1
+
   deploy:
     # A private repository has no Pages site yet: the first pushes would only turn the run red.
     if: ${{ !github.event.repository.private }}
+    needs: live
+    timeout-minutes: 15
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      # The actions are pinned to the commit of their tag (a tag can be moved, a commit cannot); Dependabot proposes the next
-      # one every week (.github/dependabot.yml). The checkout keeps no token in .git/config: the job needs it only as GH_TOKEN.
+      # The checkout keeps no token in .git/config: the job needs it only as GH_TOKEN.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -63,9 +133,105 @@ jobs:
           else
             python web/build_site.py --out _site --site site
           fi
+      # The live.json of the job "live" goes into the built site, after the build (the builder wants an empty folder and
+      # clears data/). The job runs only when "live" succeeded: a day without a usable file deploys nothing.
+      - name: Take the live.json of the job live
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: live-json
+          path: _site/data
+      # The layout of an artifact (a single file at its root) is known from the documentation of the action, not from a run:
+      # a site without data/live.json would only say "not checked", so the job stops instead of going on without it.
+      - name: Check that the live.json arrived
+        run: |
+          test -s _site/data/live.json || { echo "The artifact of the live job holds no live.json."; exit 1; }
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: _site
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+  # One issue per live game version that is newer than the data of this site, and one per source that has been silent for
+  # more than three days. Not on a push (the daily run and a manual run only) and not in a private repository. The only job
+  # that may write issues. It starts when "deploy" has succeeded and reads the live.json that was just published (the same
+  # file, from the artifact: the address of the site may still serve the old one for a while); it asks no source itself.
+  notify:
+    if: ${{ github.event_name != 'push' && !github.event.repository.private }}
+    needs: deploy
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: Take the live.json that was just published
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: live-json
+          path: ${{ runner.temp }}/published
+      # Without the file the steps below would find "nothing to report" and say nothing: stop instead.
+      - name: Check that the live.json arrived
+        run: |
+          test -s "$RUNNER_TEMP/published/live.json" || { echo "The artifact of the live job holds no live.json."; exit 1; }
+      # The title is the key: an issue (open or closed) with this title means the version was reported already. Only digits
+      # and dots reach the shell (web/live_version.py checks both versions), so the text cannot carry anything else.
+      - name: Open one issue for a live version newer than the data
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CURRENT: site/data/current.json
+          LIVE: ${{ runner.temp }}/published/live.json
+        run: |
+          pair=$(python web/live_version.py --compare "$CURRENT" "$LIVE")
+          if [ -z "$pair" ]; then
+            echo "The game data are not older than the live patch (or the live version is not known): no issue."
+            exit 0
+          fi
+          live=${pair% *}
+          data=${pair#* }
+          title="Game data older than the live patch: $live"
+          # The search index lags behind and returns few hits: list the titles and compare the whole title exactly.
+          titles=$(gh issue list --state all --limit 1000 --json title --jq '.[].title') || { echo "The issues could not be listed."; exit 1; }
+          if printf '%s\n' "$titles" | grep -Fxq -- "$title"; then
+            echo "An issue for $live exists already."
+            exit 0
+          fi
+          gh issue create --title "$title" --body "The game data of this site are for Grim Dawn $data. The live game version is $live. The data must be rebuilt."
+      # A source that has not answered for more than three days (or never) is no longer looked at: its last version stays in
+      # live.json, and a new patch that only it knows would go unnoticed. The page says so too. The title holds the source
+      # and the day of its last answer, so one silent period is one issue (open or closed), and a later one opens a new issue.
+      # Only known source names and a real day or "never" reach the shell (web/live_version.py --silent prints nothing else).
+      - name: Open one issue per source that has been silent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          LIVE: ${{ runner.temp }}/published/live.json
+        run: |
+          silent=$(python web/live_version.py --silent "$LIVE")
+          if [ -z "$silent" ]; then
+            echo "Every source answered within three days: no issue."
+            exit 0
+          fi
+          titles=$(gh issue list --state all --limit 1000 --json title --jq '.[].title') || { echo "The issues could not be listed."; exit 1; }
+          while read -r source since; do
+            if [ "$since" = never ]; then
+              title="Patch guard: $source has never answered"
+            else
+              title="Patch guard: $source has not answered since $since"
+            fi
+            if printf '%s\n' "$titles" | grep -Fxq -- "$title"; then
+              echo "An issue for $source (last answer: $since) exists already."
+              continue
+            fi
+            body="The patch guard has had no answer from $source for more than three days (last answer: $since)."
+            body="$body A new game patch that only this source reports would go unnoticed."
+            body="$body The address or the format of the source may have changed, or it may refuse the runners of GitHub."
+            gh issue create --title "$title" --body "$body"
+          done <<< "$silent"

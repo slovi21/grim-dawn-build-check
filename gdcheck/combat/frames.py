@@ -22,6 +22,7 @@ import dataclasses
 from dataclasses import dataclass
 
 from ..data import animation as AD
+from ..domain import forms as FM
 from ..domain.enums import Activity
 from ..mechanics import animation as AN
 
@@ -110,9 +111,12 @@ def _weapons(ctx) -> dict:
 
 
 def active_form(tab: dict, sources) -> str | None:
-    """Form skill whose table applies: a shapeshift toggle with points (Werewolf, Wereraven) or an
-    item-granted form (Fangs). Several -> the first by record name (noted by the caller)."""
+    """Form skill whose table applies: the levelled form that counts (domain.forms: decision 67, the one with more points)
+    or an item-granted form (Fangs). Several item forms -> the first by record name (noted by the caller)."""
     forms = tab.get("forms") or {}
+    counted = FM.choice_of(sources.skills)
+    if counted is not None and counted.record in forms:
+        return counted.record
     act = sorted({s.record for s in sources.skills if s.record in forms and s.points > 0
                   and s.activity == Activity.TOGGLE}
                  | {g.skill_record for g in getattr(sources, "granted", ()) if g.skill_record in forms
@@ -122,7 +126,7 @@ def active_form(tab: dict, sources) -> str | None:
 
 def profile(ctx, sources, action, tab: dict | None = None) -> Profile | None:
     """Animation profile of one ActionResult (None: no animation tables for this game version)."""
-    tab = tab if tab is not None else AD.tables(getattr(ctx, "game_version", None) or "1.3.0.8", None,
+    tab = tab if tab is not None else AD.tables(getattr(ctx, "game_version", None) or "1.3.1.2", None,
                                                 _fingerprint(ctx))
     if not tab:
         return None
@@ -258,7 +262,7 @@ class FrameModel:
     """Profiles of one character, timings per state on demand (cached per action and factor)."""
 
     def __init__(self, ctx, sources, rounding: str | None = None):
-        ver = getattr(ctx, "game_version", None) or "1.3.0.8"
+        ver = getattr(ctx, "game_version", None) or "1.3.1.2"
         self.tab = AD.tables(ver, None, _fingerprint(ctx))
         self.ftab = AD.frames_table(ver)
         rs = getattr(ctx, "ruleset", None) or {}

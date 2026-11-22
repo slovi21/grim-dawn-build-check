@@ -113,6 +113,9 @@ footer p { margin: 0 0 12px; max-width: 40em; }
 main[data-state="closed"] .check-ui, main[data-state="updating"] .check-ui, main[data-state="unsupported"] .check-ui,
 main[data-state="damaged"] .check-ui, main[data-state="start"] .check-ui { display: none; }
 main[data-state="loading"] .pick, main[data-state="checking"] .pick, main[data-state="result"] .pick, main[data-state="failed"] .pick { display: none; }
+/* patch guard: shown by check/stale.mjs when the game data are older than the game */
+.stale { margin: 0; padding: 12px var(--gutter); background: var(--plate-2); border-bottom: 2px solid var(--risk); color: var(--bone); font: 500 16px/1.4 var(--narrow); text-align: center; }
+.live-status { margin: 24px 0 0; font-size: 15px; color: var(--ash); }
 </style>
 </head>
 <body>
@@ -197,5 +200,6 @@ main[data-state="loading"] .pick, main[data-state="checking"] .pick, main[data-s
 </div>
 </main>
 <script type="module" src="check/main.mjs"></script>
+<script type="module" src="check/stale.mjs"></script>
 </body>
 </html>

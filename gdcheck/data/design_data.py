@@ -4,7 +4,8 @@ references/design-data-<version>.json is written by gdcheck.app.refs_extract (pa
 .arz files - on the PC by GD-Tools after an index rebuild, in a chat from uploaded .arz files. The
 index keeps bonus fields of items, skills and devotion stars; a design also needs:
 
-    sets              item set records (records/items/lootsets/): members, bonuses per number of pieces,
+    sets              item set records (records/items/lootsets/ and, since 1.3.1, records/items/awakened/
+                      lootsets/): members, bonuses per number of pieces,
                       '+N to all skills of a mastery', item skill modifiers with the piece count that
                       activates them (itemSkillModifierControl)
     modifiers         skill modifier/transmuter records with their conversions (also the second pair
@@ -28,6 +29,8 @@ from . import versioned as V
 PREFIX = "design-data"
 SCHEMA = 1
 SET_DIR = "records/items/lootsets/"
+# gap 2 (20.11.2026): patch 1.3.1 brought awakened sets in their own folder (14 set records in 1.3.1.2, e.g. Blazeseer)
+SET_DIRS = (SET_DIR, "records/items/awakened/lootsets/")
 DEVOTION_DIR = "records/skills/devotion/"
 SKILL_DIR = re.compile(r"^records/skills/playerclass\d+/")
 UI_SKILL = re.compile(r"^records/ui/skills/(class\d+)/(skill\d+|classtraining)\.dbr$")
@@ -161,7 +164,7 @@ def extract(read, names, version: str, fingerprint: str) -> dict:
     sets, mods, cps, weapons, tree, skills = {}, {}, {}, {}, {}, {}
     raw_skills: dict = {}
     for n in names:
-        if n.startswith(SET_DIR):
+        if n.startswith(SET_DIRS):
             r = read(n) or {}
             if r.get("setMembers"):
                 sets[n] = item_set(read, n, r)
@@ -216,3 +219,34 @@ def resolve(index, folder=None, extras=None) -> V.Resolved:
     """The design-data file of this game data (fingerprint first, see data.versioned)."""
     ver, fp = V.index_identity(index)
     return V.resolve(PREFIX, ver, fp, folder, extras)
+
+
+# the design data fits a skill link when it was extracted from this game data (or another build of the same version, or an
+# older version: a link of an old patch is still the best answer, a missing one falls back to the naming rule)
+LINK_MATCHES = ("fingerprint", "label", "other build", "older version")
+
+
+def skill_links(index) -> dict:
+    """{skill record: {"dependency": [base skills], "sub_skill": record}} of the skills that carry `skillDependancy` or
+    `subSkillName` (B3, M17). The index keeps neither field; the design data does (SKILL_KEYS). Read once per index and
+    cached on it; {} for a stand-in index without game data identity, for game data the design data is not meant for, and
+    when there is no design-data file (the caller falls back to the naming convention)."""
+    cached = getattr(index, "_skill_links", None)
+    if cached is not None:
+        return cached
+    links: dict = {}
+    res = resolve(index)
+    if res.path is not None and res.match in LINK_MATCHES:
+        for rec, facts in (res.data.get("skills") or {}).items():
+            entry = {}
+            if facts.get("dependency"):
+                entry["dependency"] = [str(x) for x in facts["dependency"]]
+            if facts.get("sub_skill"):
+                entry["sub_skill"] = str(facts["sub_skill"])
+            if entry:
+                links[rec] = entry
+    try:
+        index._skill_links = links
+    except AttributeError:          # an index object without a writable __dict__: read again next time
+        pass
+    return links

@@ -78,7 +78,7 @@ def circuit_breakers(sources) -> list:
 
 def build(ctx, sources, snap, slow: float = 0.5) -> dict:
     """{name: CombatState}. `slow` = share of action speed lost in SLOWED (scenario value)."""
-    keep = PS.not_dispelable(ctx.game_version or "1.3.0.8",
+    keep = PS.not_dispelable(ctx.game_version or "1.3.1.2",
                              str((getattr(getattr(ctx, "index", None), "meta", None) or {}).get("fingerprint") or ""))
     base = always_on(sources, keep)
     kept = maintained(sources, snap)

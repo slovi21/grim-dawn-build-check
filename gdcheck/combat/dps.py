@@ -13,7 +13,7 @@ quantized again; CC_LOCKED = 0). The rotation is never more certain than its wea
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..mechanics import procs as PR
 from ..mechanics.policy import Confidence, rule
@@ -43,6 +43,9 @@ class Rotation:
     main_timing: object = None        # combat.frames.Timing of the main action (None: estimate/override)
     spender_timing: object = None
     refresh: tuple = ()               # (cooldown before, expected cooldown, refresh_terms) of the spender
+    uses: dict = field(default_factory=dict)   # M18: action id -> uses per second of the main action and the spender
+    energy_per_s: float = 0.0         # M18 (b): energy the rotation spends per second (uses x energy of the action)
+    buffs: tuple = ()                 # M18 (a): (label, share of the fight on, note) of the combat buffs mixed in (combat.buffs)
 
 
 def action_timing(action, snap, factor: float = 1.0, override: float | None = None, values=None,
@@ -212,10 +215,63 @@ def refreshed_cooldown(spender, main, target: str, cd0: float, rate: float, spen
                 "target; more targets in reach cut it further)")
 
 
+def other_spenders(spenders, spender, cooldowns, snap, factor, override, values, frames, target, budget: float) -> list:
+    """[{action, seconds, share}] of the cooldown actions besides the main spender: one use per cooldown takes its animation
+    time (`share` of the time = seconds / cooldown), best damage per second of animation first, together at most `budget`."""
+    rows = []
+    for o in spenders:
+        if o.action_id == spender.action_id:
+            continue
+        cd = cooldowns[o.action_id]
+        rate, _t = action_timing(o, snap, factor, override, values, frames)
+        if rate <= 0 or not cd:
+            continue
+        seconds = 1.0 / rate
+        d, t, _h = _per_target(o, target)
+        value = (d + t * min(getattr(o, "dot_duration", 0.0) or DEFAULT_DOT_S, cd)) / seconds
+        rows.append((value, {"action": o, "seconds": seconds, "share": min(1.0, seconds / max(cd, seconds))}))
+    out, left = [], max(0.0, budget)
+    for _v, row in sorted(rows, key=lambda x: -x[0]):
+        take = min(row["share"], left)
+        if take > 1e-9:
+            out.append(dict(row, share=take))
+            left -= take
+    return out
+
+
+@rule("energy_allocation", Confidence.ASSUMED,
+      "with an empty pool the character casts what the regeneration pays for, the most damage per energy first (fractional "
+      "knapsack over the rotation's actions, each at most at its rate with a full pool; actions without cost stay): video of Cpt "
+      "Wolf, 21.11.2026 - 0.78 - 0.96 %/s with the pool at 31 - 131 of 1,502 against 1.62 %/s, which the spamming of Feral Claws "
+      "(7 energy) explains and the equal slowing of all skills (0.3 - 0.5) does not")
+def energy_throttle(actions, uses: dict, target: str, regen: float) -> float:
+    """Share of the damage per second (hits + DoT, procs not counted) the rotation keeps when it may spend only `regen` energy
+    per second; 1.0 when the regeneration pays for all of it."""
+    by_id = {a.action_id: a for a in actions}
+    rows, full = [], 0.0
+    for aid, k in uses.items():
+        a = by_id.get(aid)
+        if a is None or k <= 0:
+            continue
+        d, t, _h = _per_target(a, target)
+        dur = getattr(a, "dot_duration", 0.0) or DEFAULT_DOT_S
+        gain = k * d + t * min(1.0, k * dur)
+        full += gain
+        rows.append((gain / (k * a.energy) if a.energy > 0 else math.inf, a, k, d, t, dur))
+    if full <= 0 or sum(r[2] * r[1].energy for r in rows) <= max(regen, 0.0) + 1e-9:
+        return 1.0
+    budget, kept = max(regen, 0.0), 0.0
+    for _value, a, k, d, t, dur in sorted(rows, key=lambda r: -r[0]):
+        k2 = k if a.energy <= 0 else min(k, budget / a.energy)
+        budget -= k2 * a.energy
+        kept += k2 * d + t * min(1.0, k2 * dur)
+    return min(1.0, kept / full)
+
+
 @rule("rotation", Confidence.DERIVED,
-      "main action plus the Onslaught spender once per cooldown; per-second values = expected damage / "
-      "expected action time (animation frames, combat spec V2 3.3); confidence of the result = its "
-      "weakest input")
+      "main action plus the Onslaught spender and the other cooldown skills of the bar, each once per cooldown; "
+      "per-second values = expected damage / expected action time (animation frames, combat spec V2 3.3); "
+      "confidence of the result = its weakest input")
 def rotation(actions, snap, target: str, state: str = "STEADY", factor: float = 1.0,
              override: float | None = None, cooldowns: dict | None = None, values=None,
              procs=(), frames=None) -> Rotation:
@@ -247,24 +303,42 @@ def rotation(actions, snap, target: str, state: str = "STEADY", factor: float = 
         {s.action_id for s in spenders} else None
     refresh_note = None
     refresh: tuple = ()
+    others: list = []
     if spender and rm > 0:
         cd = cooldowns[spender.action_id]
         rs, tsp = action_timing(spender, snap, factor, override, values, frames)
         ts = 1.0 / rs if rs > 0 else cd
+        # M18 (KG-21): every other cooldown skill of the bar is cast on its cooldown too (the video: all slots of the bar count
+        # down in the fight, Cpt Blade and Cpt Magic), best damage per second of animation first, as long as time is left
+        others = other_spenders(spenders, spender, cooldowns, snap, factor, override, values, frames, target,
+                                1.0 - ts / max(cd, ts))
+        u_sec = sum(o["share"] for o in others)
         cd0 = cd
-        cd, refresh_note = refreshed_cooldown(spender, main, target, cd, rm, ts)
+        cd, refresh_note = refreshed_cooldown(spender, main, target, cd, rm * (1 - u_sec), ts)
         if refresh_note:
             refresh = (cd0, cd, tuple(refresh_terms(spender, main, target)))
         ds, dts, hs = _per_target(spender, target)
-        n_main = max(0.0, (cd - ts) * rm)
-        dps = PR.dps([(ds, ts), (dm * n_main, n_main / rm if rm else 0.0)])
-        heal = (hs + hm * n_main) / max(cd, ts)
         span = max(cd, ts)
+        u_sec = min(u_sec, max(0.0, 1.0 - ts / span))
+        scale = u_sec / sum(o["share"] for o in others) if others and sum(o["share"] for o in others) > 0 else 0.0
+        n_main = max(0.0, (1.0 - ts / span - u_sec) * span * rm)
+        parts = [(ds, ts), (dm * n_main, n_main / rm if rm else 0.0)]
+        heal = hs + hm * n_main
         rates = {spender.action_id: 1.0 / span, main.action_id: n_main / span}
         # DoTs of different skills stack (community primer, Crate forum 37738): the spender's own DoT
         # runs min(1, duration / cycle) of the time; the main attack's DoT is refreshed all the time
         dot_main = tm * dot_uptime(main, n_main / span)
         dot_spender = dts * dot_uptime(spender, 1.0 / span)
+        for o in others:
+            k = scale * o["share"] / o["seconds"]                         # uses per second of this skill
+            do, dto, ho = _per_target(o["action"], target)
+            parts.append((do * k * span, k * span * o["seconds"]))
+            heal += ho * k * span
+            rates[o["action"].action_id] = k
+            dot_spender += dto * dot_uptime(o["action"], k)
+            o["uses"] = k
+        dps = PR.dps(parts)
+        heal = heal / span
     else:
         tsp = None
         dps = PR.dps([(dm, 1.0 / rm)]) if rm > 0 else 0.0
@@ -273,6 +347,7 @@ def rotation(actions, snap, target: str, state: str = "STEADY", factor: float = 
         rates = {main.action_id: rm}
         dot_main, dot_spender = tm * dot_uptime(main, rm), 0.0
     by_id = {a.action_id: a for a in usable}
+    energy_s = sum(r * (getattr(by_id[aid], "energy", 0.0) or 0.0) for aid, r in rates.items())
     pd, pt, ph, detail = proc_part(procs, rates, by_id, target)
     if override:
         notes = [f"action rate set by you: {override:g}/s"]
@@ -283,6 +358,10 @@ def rotation(actions, snap, target: str, state: str = "STEADY", factor: float = 
         confs = [t.confidence if t is not None else "ESTIMATE" for _lbl, t in used]
     notes += ["spender once per cooldown (its animation locks the character), main attack in between"
               if spender else "main attack only",
+              *(["other cooldown skills of the bar cast on their cooldown, best first: "
+                 + ", ".join(f"{o['action'].label} every {1 / o['uses']:.1f} s" for o in others if o.get("uses"))
+                 + " (ASSUMED; the video shows every slot of the bar counting down in the fight)"]
+                if any(o.get("uses") for o in others) else []),
               "DoT per skill at uptime min(1, uses/s x duration; 3 s when only gear gives the DoT, ASSUMED); "
               "DoTs of different skills stack, the same skill refreshes (community primer, Crate forum 37738 - "
               "TESTED)"]
@@ -296,4 +375,4 @@ def rotation(actions, snap, target: str, state: str = "STEADY", factor: float = 
     conf = FR.weakest(*confs, "ASSUMED")        # rotation policy itself: ASSUMED
     return Rotation(target, state, main.label, spender.label if spender else None, rm, dps + pd,
                     dot_main + dot_spender + pt, heal + ph, span, conf, tuple(notes), pd, pt, ph, detail, tmain, tsp,
-                    refresh)
+                    refresh, dict(rates), energy_s)

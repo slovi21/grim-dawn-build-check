@@ -128,7 +128,8 @@ def required_level(idx, item: dict) -> float:
     return req
 
 
-STASH_PARTS = ("basename", "prefix_name", "suffix_name", "modifier_name", "transmute_name",
+# no `transmute_name`: an illusion gives no values (B4, M17; see domain.character.ITEM_PARTS)
+STASH_PARTS = ("basename", "prefix_name", "suffix_name", "modifier_name",
                "relic_name", "relic_bonus", "augment_name", "ascended_name", "ascended_2h_name")
 
 
@@ -164,6 +165,23 @@ def stash_candidates(base, field: str) -> list[dict]:
                             "rank_lost": CF.rank_bonus_lost(ranks(w.item), ranks(it)),
                             "name": idx.item_name(it), "old_name": idx.item_name(w.item)})
     out.sort(key=lambda c: (c["neg"], -c["gain"], c["slot"], c["name"]))
+    return out
+
+
+def stash_pick(candidates: list, count: int) -> list:
+    """The stash candidates of one target that are recalculated: the first `count` DIFFERENT ones (slot and item name; the
+    other copies of an item a stash holds several times are left out - they would use a recalculation each and give the same
+    proposal). E2 (KG-36): it was the first two. The order of `stash_candidates` fits a swap that hurts no resistance first, so
+    a small candidate that hurts none (+2 Physical Resistance) crowded the swap that closes the target (Divinesteel
+    Hauberk, +9) out of the two places; as many candidates as the augments and components get (`top_k`) find it again."""
+    seen, out = set(), []
+    for c in candidates:
+        if len(out) >= count:
+            break
+        key = (c["slot"], c["name"])
+        if key not in seen:
+            seen.add(key)
+            out.append(c)
     return out
 
 
@@ -287,8 +305,8 @@ def _target_label(base, tid):
 def proposals(base, max_evals: int = 80, top_k: int = 5) -> list[Proposal]:
     """Gear and stash proposals, each recalculated on the whole character. The work budget is a
     fixed number of recalculations (deterministic on every machine; .44 replaced a 0.8 s wall
-    clock budget that gave fewer proposals on a slow or busy PC). 19 test characters need at
-    most 59."""
+    clock budget that gave fewer proposals on a slow or busy PC). 19 test characters needed at
+    most 59; since E2 (KG-36: up to top_k different stash candidates per target, not two) the 20 need at most 65."""
     out = []
     used = 0
     for field, tid in target_fields(base):
@@ -332,7 +350,7 @@ def proposals(base, max_evals: int = 80, top_k: int = 5) -> list[Proposal]:
                         "slot": c["slot"], "old_name": c["old_name"], **CF.annotate(cmp),
                         "apply": (("item_part", c["slot"], c["part"], c["record"]),),
                         **({"needs_rank": need} if need else {})}))
-        for c in stash_candidates(base, field)[:2]:
+        for c in stash_pick(stash_candidates(base, field), top_k):
             if used >= max_evals:
                 break
             used += 1

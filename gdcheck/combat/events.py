@@ -26,6 +26,8 @@ class DamageEvent:
     crit_share: float = 0.0
     onslaught: int = 0
     rules: tuple = field(default_factory=tuple)
+    crit_damage: float = 0.0     # critical damage of the hit (0.40 = +40 %): sheet + the skill's own; the factor of a crit tier
+    #                              is the tier (1.1 ... 1.5) + this value (the game shows it as "(x1.50)")
 
     @property
     def direct(self) -> float:

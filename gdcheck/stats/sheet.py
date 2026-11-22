@@ -68,7 +68,7 @@ def _armor(ctx, sources, effects_by_source, fields) -> dict:
         if not v:
             continue
         if s.kind in (SourceKind.SKILL, SourceKind.DEVOTION, SourceKind.GRANTED_SKILL,
-                      SourceKind.ITEM_MODIFIER):
+                      SourceKind.ITEM_MODIFIER, SourceKind.SET):
             global_flat += v
         elif s.slot in ARMOR_SLOTS:
             per_item[s.slot] = per_item.get(s.slot, 0.0) + v
@@ -153,6 +153,12 @@ def _base_of(e) -> str:
     return e.group[4:] if e.group.startswith("mod:") else e.group
 
 
+def group_record(group: str) -> str:
+    """The skill record of an effect group: "mod:<skill>" and "granted:<skill>[:<item instance>]" (gap 2: one group
+    per item) give <skill>, any other group is the record itself."""
+    return group.split(":")[1] if group.startswith(("mod:", "granted:")) else group
+
+
 def build(ctx, sources) -> Snapshot:
     by_src: dict = {}
     for e in sources.effects:
@@ -179,7 +185,7 @@ def build(ctx, sources) -> Snapshot:
         return 1.0
     combat_fields, combat_prov = aggregate(sources.effects, kept)
     combat = evaluate("combat", ctx, sources, combat_fields, combat_prov, by_src)
-    keep = PS.not_dispelable(ctx.game_version or "1.3.0.8",
+    keep = PS.not_dispelable(ctx.game_version or "1.3.1.2",
                              str((getattr(getattr(ctx, "index", None), "meta", None) or {}).get("fingerprint") or ""))
     parent = {s.record: (s.parent or s.record) for s in sources.skills}
 
@@ -190,7 +196,7 @@ def build(ctx, sources) -> Snapshot:
             return 1.0
         if e.activity != Activity.TOGGLE:
             return 0.0
-        base = e.group.split(":", 1)[1] if e.group.startswith(("mod:", "granted:")) else e.group
+        base = group_record(e.group)
         if not base.startswith("records/"):
             src = sources.source(e.source_id)
             base = parent.get(src.record_id, src.record_id) if src else ""

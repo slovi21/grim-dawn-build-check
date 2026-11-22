@@ -4,5 +4,5 @@ Layers, imports only downwards:
     data -> domain -> mechanics -> stats -> combat -> analysis -> report -> app
 mechanics is pure (stdlib + gdcheck.mechanics only).
 """
-VERSION = "2026-10-30.80"
+VERSION = "2026-11-22.88"
 RULESET_VERSION = "R5"

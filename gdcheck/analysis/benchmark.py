@@ -13,15 +13,24 @@ a spender finds the stacks its generator built (mechanics.onslaught.expected_sta
 The range: `low` = the faster end (maximum stacks, the model's own rotation); `high` = the slower end, the worse
 of 0 stacks and the rotation slack (the action model's rotation is 4-9 % too fast against play, KG-09). The
 confidence is never above ASSUMED (health formula, expected stacks, no movement or target switching).
+
+M18: the combat buffs a fight starts and ends (Deadly Momentum, Hungering Void: combat.buffs) enter as a mix of the rotation
+with and without them, weighted by the share of the fight they are on; the energy budget (the pool, the regeneration, what the
+rotation spends per second) turns the time into 'the rate holds until the pool is empty, then falls to what the regeneration
+pays for'. The pool is the maximum less the energy that auras and toggles reserve (E1).
+`pct_start` is the dummy's health per second at the start (full pool), `seconds` the whole run to the shield,
+`seconds_unlimited` the same without the energy limit.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 from ..combat import actions as ACT
+from ..combat import buffs as BF
 from ..combat import dps as DPS
 from ..combat import frames as FR
 from ..data import benchmarks as BD
+from ..mechanics import combat_buffs as CB
 from ..mechanics import onslaught as ONS
 from ..mechanics.policy import Confidence, rule
 
@@ -52,6 +61,11 @@ class BenchRow:
     seconds_max: float | None = None    # the same with the maximum stacks
     state: object = field(default=None, compare=False)       # combat.target_state.TargetState
     rotation: object = field(default=None, compare=False)   # combat.dps.Rotation of the central value
+    pct_start: float | None = None          # M18: % of the target's health per second at the start (full energy pool)
+    pct_buffed: float | None = None         # M18: the same with every combat buff on (a fight opened with them up)
+    seconds_unlimited: float | None = None  # M18: the central value without the energy limit
+    energy: tuple = ()                      # M18 (b): (pool, regeneration/s, cost/s of the rotation, seconds to empty, factor)
+    buffs: tuple = ()                       # M18 (a): (label, share of the fight on, note) of every combat buff
 
 
 @dataclass(frozen=True)
@@ -77,27 +91,77 @@ def _seconds(to_kill: float, rot) -> float | None:
     return to_kill / dps if dps > 0 else None
 
 
+def _energy(snap, rot, acts=None, target: str = "") -> tuple:
+    """(pool, regeneration per s, energy per s of the rotation, seconds until the pool is empty, rate factor afterwards) -
+    M18 (b). The regeneration is the sheet's (mechanics.combat_buffs.energy_regen); a rotation without energy cost is
+    never limited. E1 (review): the pool is what the character can spend, the maximum less what its auras and toggles keep
+    reserved (`characterManaLimitReserve`, an absolute number: the sheet's 'Energy Reserved')."""
+    v = snap.combat
+    f = v.fields
+    pool = CB.usable_energy(float((v.abilities or {}).get("energy", 0.0) or 0.0), f.get("characterManaLimitReserve", 0.0))
+    regen = CB.energy_regen(f.get("characterManaRegen", 0.0), f.get("characterManaRegenModifier", 0.0),
+                            float((v.abilities or {}).get("spirit", 0.0) or 0.0))
+    cost = float(getattr(rot, "energy_per_s", 0.0) or 0.0)
+    dry, factor = CB.energy_run(pool, regen, cost) if cost > 0 else (float("inf"), 1.0)
+    if acts is not None and dry != float("inf"):
+        factor = DPS.energy_throttle(acts, rot.uses, target, regen)       # an empty pool: most damage per energy first
+    return pool, regen, cost, dry, factor
+
+
+def _seconds_energy(to_kill: float, rot, snap, acts=None, target: str = "") -> float | None:
+    """Seconds to deal `to_kill` with the energy limit of the rotation (`_seconds` is the same without it)."""
+    dps = rot.dps_direct + rot.dot_per_s
+    if dps <= 0:
+        return None
+    _pool, _regen, _cost, dry, factor = _energy(snap, rot, acts, target)
+    return CB.seconds_with_energy(to_kill, dps, dry, factor)
+
+
 def bench_row(state, actions, snap, procs, frames, action_rate=None, actions_zero=None, actions_max=None,
-              label: str = "", stacks: int = 0, stacks_max: int = 0, stacks_note: str = "") -> BenchRow:
+              label: str = "", stacks: int = 0, stacks_max: int = 0, stacks_note: str = "", mix=None,
+              mix_on=None) -> BenchRow:
     """The row of one target state. `actions` give the central value; `actions_zero` / `actions_max` (the same
-    actions at 0 / maximum Onslaught stacks, None without a spender) give the ends of the range."""
-    rot = _rotation(state, actions, snap, procs, frames, action_rate)
+    actions at 0 / maximum Onslaught stacks, None without a spender) give the ends of the range. `mix` (M18): a function
+    actions -> Rotation that mixes in the combat buffs (see `run`); without it the plain rotation is used. `mix_on`
+    gives the rotation with every buff on (`pct_buffed`)."""
+    def rot_of(acts):
+        return mix(acts) if mix is not None else _rotation(state, acts, snap, procs, frames, action_rate)
+    rot = rot_of(actions)
     to_kill = state.health * state.kill_share
     dps = rot.dps_direct + rot.dot_per_s
     conf = FR.weakest(rot.confidence, Confidence.ASSUMED.value)
+    pool, regen, cost, dry, factor = _energy(snap, rot, actions, state.name)
+    energy = (pool, regen, cost, dry, factor) if cost > 0 else ()
+    notes = tuple(rot.assumptions)
+    if energy and dry != float("inf"):
+        held = float(snap.combat.fields.get("characterManaLimitReserve", 0.0) or 0.0)
+        reserved = f" ({held:,.0f} of the maximum are reserved by auras and toggles)" if held > 0 else ""
+        notes += (f"energy: the rotation spends {cost:.1f} per second, the pool of {pool:,.0f}{reserved} and a regeneration of "
+                  f"{regen:.1f} per second (the sheet's value at rest, buffs that a crit starts not counted) last {dry:.0f} s, "
+                  f"then it casts what the regeneration pays for, most damage per energy first: {factor * 100:.0f}% "
+                  "of its damage",)
+    elif energy:
+        notes += (f"energy: the rotation spends {cost:.1f} per second against a regeneration of {regen:.1f}: no limit",)
+    dps_on = dps
+    if mix_on is not None:
+        rot_on = mix_on(actions)
+        dps_on = rot_on.dps_direct + rot_on.dot_per_s
     common = dict(role=state.role, label=label or state.name, level=state.level, health=state.health,
-                  to_kill=to_kill, dps=dps, confidence=conf, notes=tuple(rot.assumptions), stacks=stacks,
-                  stacks_max=stacks_max, stacks_note=stacks_note, state=state, rotation=rot)
-    t = _seconds(to_kill, rot)
+                  to_kill=to_kill, dps=dps, confidence=conf, notes=notes, stacks=stacks,
+                  stacks_max=stacks_max, stacks_note=stacks_note, state=state, rotation=rot,
+                  pct_start=100.0 * dps / state.health if state.health else None, energy=energy,
+                  pct_buffed=100.0 * dps_on / state.health if state.health else None,
+                  buffs=tuple(getattr(rot, "buffs", ()) or ()))
+    t = _seconds_energy(to_kill, rot, snap, actions, state.name)
     if t is None:
         return BenchRow(seconds=None, low=None, high=None, **common)
     t_zero = t_max = t
     if actions_zero is not None:
-        t_zero = _seconds(to_kill, _rotation(state, actions_zero, snap, procs, frames, action_rate)) or t
+        t_zero = _seconds_energy(to_kill, rot_of(actions_zero), snap, actions_zero, state.name) or t
     if actions_max is not None:
-        t_max = _seconds(to_kill, _rotation(state, actions_max, snap, procs, frames, action_rate)) or t
+        t_max = _seconds_energy(to_kill, rot_of(actions_max), snap, actions_max, state.name) or t
     return BenchRow(seconds=t, low=min(t, t_max), high=max(t * (1 + ROTATION_SLACK), t_zero),
-                    seconds_zero=t_zero, seconds_max=t_max, **common)
+                    seconds_zero=t_zero, seconds_max=t_max, seconds_unlimited=_seconds(to_kill, rot), **common)
 
 
 def _generators(sources, idx) -> tuple[set, float]:
@@ -175,10 +239,48 @@ def run(ctx, sources, snap, actions, procs, tstates, frames, pet: bool = False) 
     boss = next((t for t in tstates if t.role == "bench_boss" and t.health > 0), None)
     central, zero, mx, stacks, n_max, note = _variants(ctx, sources, snap, actions, procs, tstates, frames, dummy)
     rate = ctx.options.action_rate
+    buffs = BF.find(ctx, sources)
+    cdr = float(snap.combat.fields.get("skillCooldownReduction", 0.0) or 0.0)
+
+    def mixer(state):
+        """actions -> Rotation: the rotation with each combination of the combat buffs on, weighted by how long it lasts. The
+        shares come from the rotation without the buffs (their uses per second); a buff on changes the values (damage, speed,
+        critical damage) and so the actions, their rates and the procs of that part."""
+        cache: dict = {}
+
+        def mix(acts):
+            base = _rotation(state, acts, snap, procs, frames, rate)
+            if not buffs or not base.uses:
+                return base
+            ups = BF.uptimes(buffs, base.uses, cdr)
+            n = max((a.onslaught for a in acts), default=0)
+            parts = []
+            for w, on in BF.masks(ups):
+                if not on:
+                    parts.append((w, base))
+                    continue
+                key = (n, tuple(b.id for b in on))
+                if key not in cache:
+                    vals = BF.state_with(ctx, sources, snap, on)
+                    acts_k = ACT.damage_per_action(ctx, sources, snap, tstates, onslaught=n, values=vals)
+                    procs_k = ACT.proc_actions(ctx, sources, snap, tstates, values=vals) if procs else procs
+                    cache[key] = DPS.rotation(acts_k, snap, state.name, "STEADY", 1.0, rate, values=vals, procs=procs_k,
+                                              frames=frames)
+                parts.append((w, cache[key]))
+            return BF.combine(parts, ups, base)
+
+        def mix_on(acts):
+            n = max((a.onslaught for a in acts), default=0)
+            vals = BF.state_with(ctx, sources, snap, list(buffs))
+            acts_k = ACT.damage_per_action(ctx, sources, snap, tstates, onslaught=n, values=vals)
+            procs_k = ACT.proc_actions(ctx, sources, snap, tstates, values=vals) if procs else procs
+            return DPS.rotation(acts_k, snap, state.name, "STEADY", 1.0, rate, values=vals, procs=procs_k, frames=frames)
+        return mix, mix_on
 
     def row(state):
+        mix, mix_on = mixer(state) if buffs else (None, None)
         return bench_row(state, central, snap, procs, frames, rate, zero, mx, BD.BENCHMARK_LABELS[state.role],
-                         stacks, n_max, note)
+                         stacks, n_max, note, mix=mix, mix_on=mix_on)
     return Benchmark(row(dummy), row(boss) if boss else None)
 
 

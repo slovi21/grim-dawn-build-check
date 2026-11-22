@@ -5,6 +5,8 @@
 //                                start -> idle -> loading -> ready -> checking -> result | failed
 // The save is read with File.arrayBuffer() and handed to the worker (transferred). It is never stored or sent.
 
+import { done as staleCheck } from "./stale.mjs";   // {live, data} when the live game version is newer than the data, else null
+
 const MAX_SAVE_BYTES = 16 * 1024 * 1024;       // the engine's limit (gdcheck.app.web.MAX_SAVE_BYTES); a test pins the equality
 const SLOW_AFTER_MS = 30000;
 
@@ -170,9 +172,10 @@ async function runPending() {
   say(STEP_TEXT.read);
   watch(true);
   const buffer = await job.file.arrayBuffer();                           // the bytes exist only in memory
+  const stale = await staleCheck;                                        // read from this site long ago; the report names the live patch only when it is newer
   if (pending !== job || !worker) return;                                // Stop was pressed meanwhile
   current = job.file;
-  worker.postMessage({ type: "check", buffer, profile: job.profile, detail: job.detail }, [buffer]);
+  worker.postMessage({ type: "check", buffer, profile: job.profile, detail: job.detail, live: stale ? stale.live : null }, [buffer]);
 }
 
 function showResult(msg) {

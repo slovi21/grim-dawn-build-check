@@ -9,18 +9,27 @@ Per skill on the hotbar (attacks, spells, form abilities, default attack):
   3. % bonuses of the type (incl. attribute share) + local % of the skill,
      x total damage multiplier, x Onslaught multiplier for cooldown skills;
   4. per target: resistance after the RR chain, PtH/crit vs the target DA.
-Form abilities hit with BOTH weapons (TESTED, golden 30.09.2026).
+Form abilities hit with BOTH weapons (TESTED, golden 30.09.2026); the direct damage of such a hit is 75 % of the two hands'
+events added up (DOUBLE_HIT_FACTOR, M18, KG-12). A levelled form is played in the form (decision 67, M19): the default attack
+and the weapon pool skills cannot be used in it and are no action; the form's own abilities, spells and item skills on the
+hotbar stay.
 Weapon '% Armor Piercing': last conversion Physical -> Pierce per hand (TESTED).
-Not included (stated in the report): DoT conversion,
-WPS mix, pets, retaliation. Procs' own damage: proc_actions() (KG-07).
+M18: a modifier or transmuter adds its own cooldown (Wrath of Agrivix: +3.8 s on a skill without one), its own damage multiplier
+and its own critical damage to ITS skill only; a skill with 'retaliationDamagePct' adds that share of the character's
+retaliation damage to its hit (retaliation_flat); a drop skill (Meteor Shower, Rain of Fire) strikes duration / interval times
+(drop_strikes).
+Not included (stated in the report): DoT conversion, WPS mix, pets. Procs' own damage: proc_actions() (KG-07).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..domain.context import onslaught_unconfirmed
 from ..domain.enums import Activity
 from ..domain.fields import conversions, leveled_fields, value_at
 from ..domain import activity as ACT
+from ..domain import forms as FM
+from ..domain import skill_facts as SF
 from ..mechanics import armor as ARM
 from ..mechanics import hit as HIT
 from ..mechanics import leech as LEECH
@@ -40,13 +49,21 @@ RES_OF = {"Physical": "Physical", "InternalTrauma": "Physical", "Pierce": "Pierc
           "VitalityDecay": "Life", "Aether": "Aether", "Chaos": "Chaos", "Bleeding": "Bleeding"}
 CONV_NAME = {"Vitality": "Life", "Acid": "Poison"}
 ELEMENTAL = ("Fire", "Cold", "Lightning")
+RETALIATION_TYPES = DIRECT + ("Elemental",)
+# KG-12 (M18): the direct damage of a form ability that strikes with two weapons. The tooltip of Cpt Wolf (video of 21.11.2026,
+# save of
+# the same minute, 1.3.1.2) shows Feral Claws Chaos 25,359 - 39,244 (mean 32,301), Cold 574.5, Vitality 297 and Rip and Tear Chaos
+# 51,444, Cold 916, Vitality 474: every one is 0.75 x (main-hand event + off-hand event) of the two hands taken separately (Chaos
+# 22,013 + 21,056 -> 32,302; Cold 383 + 383 -> 574.5; Vitality 198 + 198 -> 297); the DoT lines (Bleeding 1,819 / 3,494, Frostburn
+# 310 / 493) equal the single DoT. Why the game does it is not known (TESTED by the tooltip, six values to the unit).
+DOUBLE_HIT_FACTOR = 0.75
 
 
 def action_confidence(conversion=(), onslaught: bool = False, double_hit: bool = False, finale: bool = False,
                       armor_piercing: bool = False, proc: bool = False, vs_target: bool = False) -> str:
     """X-009: confidence of one action = the weakest rule of its damage chain - the conversion step
     (EXACT, TESTED for a pro-rata split of global conversions), Onslaught stacks (ASSUMED until an in-game
-    golden at 3/6 stacks, requirements K5), both weapons of a form ability, a charged finale, weapon
+    golden with stacks, requirements K5), both weapons of a form ability, a charged finale, weapon
     armor piercing and the expected hit against a target (PtH/crit vs its DA - the vs-target cells; TESTED),
     a proc's own damage (DERIVED)."""
     levels = [Confidence(c) for c in conversion if c]
@@ -98,6 +115,10 @@ class ActionResult:
     cooldown_refresh: tuple = ()    # (label, chance 0..1, seconds, trigger[, skills that must be used]):
                                     # procs that cut this cooldown (combat.dps.refresh_terms)
     chain: tuple = ()               # records of the skill and its modifiers with points (refresh triggers)
+    energy: float = 0.0             # M18 (b): energy per use (0 for a proc and a skill without cost)
+    strikes: float = 1.0            # M18 (e): expected strikes per use of a drop skill (a proc's direct damage is per use)
+    retaliation: float = 0.0        # M18 (f): flat retaliation damage the hit adds (before the damage %), all types
+    crit_damage: float = 0.0        # critical damage of the action: sheet + the skill's own (Voracity on Feral Claws)
 
 
 def _avg(f, t, slow=False):
@@ -179,6 +200,94 @@ def _skill_records(rec_name, states, sources, idx, rank):
     return out
 
 
+def _local_sum(recs, key: str) -> float:
+    """Sum of one field over the records of a skill, its modifiers and the item modifiers on it - what the skill alone gets."""
+    return sum(float(f.get(key, 0.0) or 0.0) for _r, f, _c, _w in recs)
+
+
+def _modifier_values(rec_name, states, sources, idx, key: str) -> float:
+    """Sum of a field the index keeps out of the bonus fields (skillCooldownTime, skillManaCost) over the modifiers and
+    transmuters of a skill with points (at their rank) and the item modifiers on it (rank 1)."""
+    total = 0.0
+    for st in states:
+        if st.parent == rec_name and st.points > 0 and st.record != rec_name:
+            total += float(value_at((idx.record(st.record) or {}).get(key), st.level) or 0.0)
+    for m in sources.modifiers:
+        if m.target_skill == rec_name:
+            total += float(value_at((idx.record(m.modifier_record) or {}).get(key), 1) or 0.0)
+    return total
+
+
+def cooldown_with_modifiers(base: float | None, added: float) -> float | None:
+    """M18 (c): the cooldown of a skill with its modifiers and transmuters: they ADD their `skillCooldownTime` to the skill's own
+    (game database: Wrath of Agrivix +3.8 s on Callidor's Tempest, which has none; Hail of Blades-type transmuters -3.0 on a
+    skill with 3.0; an ascended modifier -0.5). None when nothing is left."""
+    total = (base or 0.0) + added
+    return total if total > 1e-9 else None
+
+
+def retaliation_flat(fields: dict, pct: float, mult: float = 1.0) -> dict:
+    """M18 (f): {type: damage} that the retaliation of the character adds to the hit of a skill with `retaliationDamagePct`:
+    retaliation of the type (its minimum - the sheet's own line: Fire 6,816 = 1,993 x (1 + 242 %), golden; a maximum below the
+    minimum is a source without one, so it counts only above the minimum) x (1 + retaliation total damage % + the type's
+    retaliation %) x the skill's share x the skill's retaliation multiplier (`retaliationDamageMultModifier`, Wrath of Agrivix
+    +180 %). The result is flat damage of the type that the damage % of the type and the critical hit act on, but not the
+    skill's damage multiplier (that one multiplies the weapon part; the retaliation has its own). ASSUMED, fitted by nothing: it
+    gives Cpt Magic's Blackwater Cocktail 33.6 k a hit against 31 - 42 k in the video (v6, 126 - 137 s) and Callidor's
+    Tempest with Wrath of Agrivix 279 k against 171 - 272 k (v5, 0 - 4 s)."""
+    if pct <= 0:
+        return {}
+    total_mod = fields.get("retaliationTotalDamageModifier", 0.0) or 0.0
+    out: dict = {}
+    for t in RETALIATION_TYPES:
+        lo, hi = fields.get(f"retaliation{t}Min", 0.0) or 0.0, fields.get(f"retaliation{t}Max", 0.0) or 0.0
+        base = (lo + hi) / 2 if hi > lo else lo
+        if base <= 0:
+            continue
+        v = base * (1 + (total_mod + (fields.get(f"retaliation{t}Modifier", 0.0) or 0.0)) / 100) * pct / 100 * mult
+        for typ in (ELEMENTAL if t == "Elemental" else (t,)):
+            out[typ] = out.get(typ, 0.0) + (v / 3 if t == "Elemental" else v)
+    return out
+
+
+def drop_strikes(rec_name: str, rec, rank: int = 1) -> float:
+    """M18 (e): expected strikes on ONE target per use of a drop skill (Skill_BuffAttackRadiusDrop: Meteor Shower, Rain of
+    Fire): `skillActiveDuration` / `skillTargetInterval` strikes, each landing on the target with the chance that a drop
+    scattered over `dropRadius` falls inside its explosion radius: (explosion / drop)^2, 1 when dropRadius is 0
+    (Devastation). Meteor Shower: 15 strikes x (2.4 / 10)^2 = 0.86; Rain of Fire of the Blazeseer set 15 x 0.0625 = 0.94 - the
+    strikes of a drop skill on a single dummy are about one hit, not fifteen. The scatter is ASSUMED uniform; a record the
+    geometry table does not list stays at one strike."""
+    if str((rec or {}).get("Class", "")) != "Skill_BuffAttackRadiusDrop":
+        return 1.0
+    dur = value_at(rec.get("skillActiveDuration"), rank) or 0.0
+    gap = value_at(rec.get("skillTargetInterval"), rank) or 0.0
+    geo = SF.DROP_GEOMETRY.get(rec_name.removeprefix("records/skills/").removesuffix(".dbr"))
+    if dur <= 0 or gap <= 0 or geo is None:
+        return 1.0
+    drop, boom = geo
+    share = 1.0 if drop <= 0 else min(1.0, (boom / drop) ** 2)
+    return max(1.0, dur / gap) * share
+
+
+def energy_cost(rec_name: str, rank: int, states, sources, idx, fields: dict) -> float:
+    """M18 (b): energy per use of a skill: its own cost at its rank plus the cost the modifiers and transmuters with points
+    add (domain.skill_facts.ENERGY_COST - the index keeps no `skillManaCost`), less the character's skill energy cost
+    reduction. 0 for a skill without cost. A modifier's value is ADDED (ASSUMED: the field is a plain number on the records
+    of transmuters, e.g. Wrath of Agrivix 30 on Callidor's Tempest, 108 at rank 21)."""
+    def of(rec, level):
+        v = SF.ENERGY_COST.get(rec.removeprefix("records/skills/").removesuffix(".dbr"))
+        return float(value_at(v, max(level, 1)) or 0.0) if v is not None else 0.0
+    cost = of(rec_name, rank)
+    for st in states:
+        if st.parent == rec_name and st.points > 0 and st.record != rec_name:
+            cost += of(st.record, st.level)
+    for m in sources.modifiers:
+        if m.target_skill == rec_name:
+            cost += of(m.modifier_record, 1)
+    cut = min(max(fields.get("skillManaCostReduction", 0.0) or 0.0, 0.0), 100.0)
+    return cost * (1 - cut / 100)
+
+
 LIFE_STEAL = "offensiveLifeLeechMin"     # % Attack Damage Converted to Health
 
 
@@ -229,7 +338,7 @@ def _refresh_table(ctx) -> dict:
     """refreshCooldown* records of the game data (references/player-skills, data.player_skills)."""
     from ..data import player_skills as PS
     fp = str((getattr(getattr(ctx, "index", None), "meta", None) or {}).get("fingerprint") or "")
-    return PS.cooldown_refresh(getattr(ctx, "game_version", None) or "1.3.0.8", fp)
+    return PS.cooldown_refresh(getattr(ctx, "game_version", None) or "1.3.1.2", fp)
 
 
 def _refresh_via(target_skill, idx) -> tuple:
@@ -237,7 +346,7 @@ def _refresh_via(target_skill, idx) -> tuple:
     sits on a buff, aura, toggle or passive (Field Command -> Ring of Steel); else the modified skill itself
     (Canister Bomb 'Grenado -2 s' only on Canister Bomb uses)."""
     cls = str((idx.record(target_skill) or {}).get("Class", "")) if target_skill else ""
-    if ACT.class_activity(cls) in (Activity.PERMANENT, Activity.TOGGLE, Activity.TEMPORARY):
+    if ACT.class_activity(cls, target_skill or "") in (Activity.PERMANENT, Activity.TOGGLE, Activity.TEMPORARY):
         return ()
     return (target_skill,) if target_skill else ()
 
@@ -312,7 +421,7 @@ def _finale_mix(finale, plain, n: int):
                          mix(finale.direct_by_type, plain.direct_by_type), mix(finale.dot_by_type, plain.dot_by_type),
                          finale.pre_hit_direct * wf + plain.pre_hit_direct * wn, finale.pth, finale.hit_factor,
                          finale.miss_share, finale.crit_share, finale.onslaught,
-                         finale.rules + (f"finale_every_{n + 1}",))
+                         finale.rules + (f"finale_every_{n + 1}",), finale.crit_damage)
 
 
 def proc_actions(ctx, sources, snap, targets, values=None) -> list[ActionResult]:
@@ -328,6 +437,7 @@ def damage_per_action(ctx, sources, snap, targets, onslaught: int | None = None,
     CIRCUIT_BREAKER pass their own values so damage and life steal are recalculated."""
     idx = ctx.index
     states = list(sources.skills)
+    form = FM.choice_of(states)          # M19 (decision 67): a levelled form is played in the form - no human attacks
     combat = values or snap.combat
     per_type = {t: v["total"] for t, v in combat.damage.items()}
     mult = 1 + combat.fields.get("offensiveDamageMultModifier", 0.0) / 100
@@ -366,6 +476,8 @@ def damage_per_action(ctx, sources, snap, targets, onslaught: int | None = None,
         if proc is None:
             if st.parent is not None:
                 continue
+            if form is not None and FM.is_weapon_pool(st.klass):
+                continue              # the default attack and the weapon pool skills cannot be used in a form (tooltip)
             if rn not in hotbar and not st.form and not default:
                 continue
             if st.form and st.form not in hotbar and rn not in hotbar:
@@ -379,7 +491,14 @@ def damage_per_action(ctx, sources, snap, targets, onslaught: int | None = None,
         wd_mod = sum(w for _, _, _, w in recs)
         wd = wd_base + (wd_mod if wd_base else 0.0)
         wd_skill = wd
-        cooldown = None if proc else value_at(rec.get("skillCooldownTime"), rank)
+        cooldown = None if proc else cooldown_with_modifiers(value_at(rec.get("skillCooldownTime"), rank),
+                                                             _modifier_values(rn, states, sources, idx, "skillCooldownTime"))
+        mult_a = 1 + (combat.fields.get("offensiveDamageMultModifier", 0.0)
+                      + _local_sum(recs, "offensiveDamageMultModifier")) / 100
+        chd_a = chd + _local_sum(recs, "offensiveCritDamageModifier") / 100
+        ret_flat = retaliation_flat(combat.fields, _local_sum(recs, "retaliationDamagePct"),
+                                    1 + _local_sum(recs, "retaliationDamageMultModifier") / 100)
+        strikes = drop_strikes(rn, rec, rank) if proc is not None else 1.0
         spender = ONS.is_spender(cooldown)
         refresh = _cooldown_refresh(rn, states, sources, idx, refresh_table) if cooldown else ()
         stacks = 0
@@ -425,15 +544,19 @@ def damage_per_action(ctx, sources, snap, targets, onslaught: int | None = None,
                 if direct != before:
                     pierced.append(True)
             p = HIT.pth(oa, target.da) if target else 0.0
-            hx = HIT.expected_hit(p, chd) if target else {"factor": 1.0, "hit": 1.0, "crit": 0.0}
+            hx = HIT.expected_hit(p, chd_a) if target else {"factor": 1.0, "hit": 1.0, "crit": 0.0}
             hitf = hx["factor"]
             dotf = HIT.dot_factor(hx) if target else 1.0
             d_out, t_out = {}, {}
             pre_hit = 0.0
-            for typ, amount in list(direct.items()) + list(dot.items()):
+            for typ, amount, from_retaliation in ([(t, a, False) for t, a in direct.items()]
+                                                  + [(t, a, False) for t, a in dot.items()]
+                                                  + [(t, a, True) for t, a in ({} if plain else ret_flat).items()]):
                 pct = per_type.get(typ, 0.0) + local.get(typ, 0.0)
-                val = amount * (1 + pct / 100) * mult * o_mult
-                is_dot = typ in dot
+                val = amount * (1 + pct / 100) * (1.0 if from_retaliation else mult_a) * o_mult
+                is_dot = typ in dot and not from_retaliation
+                if not is_dot:
+                    val *= (DOUBLE_HIT_FACTOR if double else 1.0) * strikes
                 if target:
                     rf = RES_OF.get(typ, typ)
                     t1, t2, t3 = target.rr.get(rf, (0.0, 0.0, 0.0))
@@ -452,7 +575,7 @@ def damage_per_action(ctx, sources, snap, targets, onslaught: int | None = None,
             return E.DamageEvent(
                 rn, hand if wd else "spell", target.name if target else None, wd, bool(wd),
                 d_out, t_out, pre_hit, p, hitf, HIT.miss_share(p) if target else 0.0, hx["crit"], stacks,
-                ("form_double_hit",) if double else ())
+                ("form_double_hit",) if double else (), chd_a)
 
         def hit(basis, target, hand):
             ev = one(basis, target, hand)
@@ -489,12 +612,24 @@ def damage_per_action(ctx, sources, snap, targets, onslaught: int | None = None,
         if stacks:
             assumptions.append(f"Onslaught {stacks}/{n_max} stacks x{o_mult:.2f} as own multiplier "
                                + ("(per-stack value not confirmed for this game version, ASSUMED)"
-                                  if "onslaught_per_stack" in getattr(ctx, "rule_overrides", ())
-                                  else "(Crate developer post; ASSUMED until an in-game golden at 3/6 stacks)"))
+                                  if onslaught_unconfirmed(ctx)
+                                  else "(per-stack value: Crate; the stacks ASSUMED until an in-game golden with "
+                                       "stacks)"))
         if any(c != "EXACT" for c in conv_conf):
             assumptions.append("several global conversions of one damage type above 100% split pro rata (TESTED)")
         if double:
-            assumptions.append("form ability hits with both weapons (TESTED)")
+            assumptions.append("form ability hits with both weapons, each hand's direct damage at 75% (tooltip of the "
+                               "video of 21.11.2026, TESTED; the reason is not known)")
+        if ret_flat:
+            assumptions.append(f"+{sum(ret_flat.values()):,.0f} flat retaliation damage per hit "
+                               f"({_local_sum(recs, 'retaliationDamagePct'):g}% of the retaliation, x"
+                               f"{1 + _local_sum(recs, 'retaliationDamageMultModifier') / 100:g} from the skill's modifiers), "
+                               "acted on by the damage % like flat damage (ASSUMED)")
+        if mult_a != mult:
+            assumptions.append(f"skill damage multiplier x{mult_a / mult:.2f} from its transmuter or modifier")
+        if strikes != 1.0 and proc is not None:
+            assumptions.append(f"drop skill: {strikes:.2f} strikes on one target per use (duration / interval x the share "
+                               "of drops that land within the explosion radius, ASSUMED uniform scatter)")
         if finale_n:
             assumptions.append(f"charged finale: every {finale_n + 1}. strike with the skill's damage, the others "
                                "are weapon attacks at 100% WD - per action = average strike (Cadence: 'magnify the "
@@ -507,6 +642,8 @@ def damage_per_action(ctx, sources, snap, targets, onslaught: int | None = None,
             double, 2 if double else 1,
             stacks, n_max, spender, raw_d, raw_t, parts, tuple(tres), min(sp["value"], sp["cap"]),
             procs, tuple(assumptions), conf, tuple(events), tuple(heals),
-            (cooldown * (1 - cdr / 100)) if cooldown else None, proc, _dot_duration(recs), refresh, chain))
+            (cooldown * (1 - cdr / 100)) if cooldown else None, proc, _dot_duration(recs), refresh, chain,
+            0.0 if proc else energy_cost(rn, rank, states, sources, idx, combat.fields), strikes,
+            sum(ret_flat.values()), chd_a))
     results.sort(key=lambda a: (-(a.direct + a.dot), a.action_id))
     return results

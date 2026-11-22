@@ -7,8 +7,12 @@ from dataclasses import dataclass, field
 from ..data import savefile
 from ..data.text import DIFFICULTIES, EQUIP_SLOTS, MASTERY_NAMES, gender_text, short
 
+# The parts of an item that give values. `transmute_name` (the illusion: the look of another item) is NOT one (B4, M17):
+# the game shows "Illusion: ..." in the tooltip, but the item keeps the values of its own record (Cpt Piercewolf, video of
+# 21.11.2026: helmet, legs, shoulders and medal carry illusions; counting them gave +3,116 Health, +906 Armor, +1 to all
+# skills). The key stays in the save document and in data.describe (display only).
 ITEM_PARTS = (("basename", "item"), ("prefix_name", "affix"), ("suffix_name", "affix"),
-              ("modifier_name", "transmuter"), ("transmute_name", "transmuter"),
+              ("modifier_name", "transmuter"),
               ("relic_name", "component"), ("relic_bonus", "component_bonus"),
               ("augment_name", "augment"), ("ascended_name", "ascended"),
               ("ascended_2h_name", "ascended"))

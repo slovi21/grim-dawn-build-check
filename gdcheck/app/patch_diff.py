@@ -9,10 +9,12 @@ Per character, with the old and with the new game data (each check complete, sam
                   only what changed, biggest change first
     records       items, affixes, components, augments, skills (incl. modifiers/transmuters) and
                   devotion powers the character uses whose game data changed: changed fields
-                  old -> new (skills: the value at the character's rank), fields that are new or gone
+                  old -> new (skills: the value at the character's rank), fields that are new or gone;
+                  a skill's buff record counts as the skill (it carries the numbers that reach the sheet)
     rules         version-specific rules applied to the new data (ruleset R5) and every reference file
                   that does not belong to the new game data (ASSUMED)
-Not covered: item sets (their records are not in the index - set bonuses still count in the numbers).
+Item sets: covered since index schema 11 (a worn set is a source like an item); before, set records were not in
+the index and their bonuses were missing from the numbers (gap 2, 20.11.2026).
 A character whose check fails with one of the two data sets is reported with the reason; the others go
 on. All characters run with the old data first, then with the new (caches hold one index at a time).
 """
@@ -34,6 +36,7 @@ EXIT_INDEX = 3                          # as cli.EXIT_INDEX
 RESISTS = ("Fire", "Cold", "Lightning", "Acid", "Vitality", "Pierce", "Bleeding", "Aether", "Chaos", "Physical")
 MAX_FIELDS = 6
 SKIP_FIELDS = ("_recordname", "_type", "_name")
+CHILD_FIELDS = ("buffSkillName",)       # records a record points to that carry its numbers (Field Command, auras)
 
 
 @dataclass
@@ -57,6 +60,18 @@ class CharDiff:
         return bool(self.numbers or self.records)
 
 
+def with_child_records(recs: dict, index) -> dict:
+    """recs plus the records they point to (CHILD_FIELDS), under the label and rank of the one that points."""
+    out = dict(recs)
+    for rec, (label, rank) in recs.items():
+        r = index.record(rec) or {}
+        for f in CHILD_FIELDS:
+            child = r.get(f)
+            if isinstance(child, str) and child and child != rec and index.record(child):
+                out.setdefault(child, (label, rank))
+    return out
+
+
 def run_one(gdc: Path, index) -> Run:
     try:
         a = PL.analyse_file(Path(gdc), index, Options())
@@ -74,14 +89,16 @@ def run_one(gdc: Path, index) -> Run:
             nums[f"DpS vs {c.boss.split(',')[0]}"] = getattr(st, "dps_total", None) or st.dps
     nums["Readiness score"] = (a.score or {}).get("score")
     recs = {}
+    from ..domain.loader import worn_sets
+    pieces = {s: len(b) for s, b in worn_sets(index, [w.basename for w in a.ctx.character.worn]).items()}
     for s in a.sources.sources:
         if s.record_id and not s.unresolved:
-            recs.setdefault(s.record_id, (s.label, None))
+            recs.setdefault(s.record_id, (s.label, pieces.get(s.record_id)))      # a set: its worn piece count
     for s in a.sources.skills:
         if s.points > 0 or s.level > 0:
             recs[s.record] = (s.label, max(int(s.level or 0), 1))
     notes = tuple(getattr(a.ctx, "rule_notes", ()) or ()) + PL.reference_notes(a.ctx.index)
-    return Run(nums, recs, notes)
+    return Run(nums, with_child_records(recs, index), notes)
 
 
 def _val(v, rank):
@@ -172,8 +189,8 @@ def render(diffs, old_index, new_index, md: bool = False) -> str:
     h1, h2 = ("# ", "## ") if md else ("", "")
     out = [f"{h1}Patch report: game data {ov} -> {nv}",
            f"old: {ov} (fingerprint {old_index.meta.get('fingerprint', '?')}), new: {nv} "
-           f"(fingerprint {new_index.meta.get('fingerprint', '?')}). Item sets are not covered (not in the "
-           "game data index); their bonuses still count in the numbers.", ""]
+           f"(fingerprint {new_index.meta.get('fingerprint', '?')}). Worn item sets count like items "
+           "(their bonuses at the number of worn pieces).", ""]
     for d in diffs:
         out.append(f"{h2}{d.name}")
         if d.error:

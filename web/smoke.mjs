@@ -76,8 +76,8 @@ def _prepare():
     except _web.WebError as ex:
         return {"state": ex.state, "message": ex.message}
     return {"state": "ok", "game_version": _data.game_version}
-def _check(path, profile, detail):
-    return _web.check_path(_Path(path), _data, profile, detail)
+def _check(path, profile, detail, live=None):
+    return _web.check_path(_Path(path), _data, profile, detail, live_version=live)
 def _modules():
     return _json.dumps(sorted(_sys.modules))
 `;

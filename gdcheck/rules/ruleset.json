@@ -15,13 +15,17 @@
     "design": "build design (.67): level budgets from playerlevels.dbr skillModifierPoints/characterModifierPoints/maxDevotionPoints (EXACT); quest rewards community (ASSUMED); tier levels gameengine.dbr skillMasteryTierLevel (EXACT)"
   },
   "onslaught_per_stack": 0.15,
+  "onslaught_wiped_on_swap": false,
+  "pet_base_resists": false,
   "frame_rounding": "up",
   "anim_playback": "n-1",
   "by_version": {
     "1.3.1": {
       "onslaught_per_stack": 0.12,
-      "_status": "ASSUMED",
-      "_source": "Grim Dawn v1.3.1 public playtest changelog (Crate forum 160053, 18.09.2026): Onslaught 12% per stack instead of 15% - confirm with the live patch notes"
+      "onslaught_wiped_on_swap": true,
+      "pet_base_resists": true,
+      "_status": "CONFIRMED",
+      "_source": "Crate patch notes 'Grim Dawn Version 1.3.1.0 + Hotfixes' (forums.crateentertainment.com/t/160806, Zantai, 08.10.2026): 'Reduced % Damage per stack of Onslaught to 12%', 'Onslaught stacks are now wiped when using weapon swap or transitioning between areas', 'Player pets now have baseline % non-Physical damage resists, scaling from 1% at level 1 to 80% by level 80. Most pet % Resist bonuses in gear and Devotions have been removed'; unchanged by 1.3.1.2 (forum 161759, 16.11.2026). The Game Guide (grimdawn.com/guide/gameplay/combat, read 18.11.2026) still says 15% per stack - the newer patch notes win. Was ASSUMED from the playtest changelog (forum 160053) until M13"
     }
   },
   "resist_base_cap": 80.0,

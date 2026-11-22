@@ -28,8 +28,8 @@ def _prepare():
     except _web.WebError as ex:
         return {"state": ex.state, "message": ex.message}
     return {"state": "ok", "game_version": _data.game_version}
-def _check(path, profile, detail):
-    return _web.check_path(_Path(path), _data, profile, detail)
+def _check(path, profile, detail, live=None):
+    return _web.check_path(_Path(path), _data, profile, detail, live_version=live)
 `;
 
 // The page's meta CSP does not govern a worker and GitHub Pages sends no CSP header, so "same origin only" is held here:
@@ -115,7 +115,7 @@ function runCheck(msg) {
   }
   progress("report");
   try {
-    const proxy = py.globals.get("_check")("/tmp/upload.gdc", msg.profile, msg.detail === true);
+    const proxy = py.globals.get("_check")("/tmp/upload.gdc", msg.profile, msg.detail === true, typeof msg.live === "string" ? msg.live : undefined);
     const r = proxy.toJs({ dict_converter: Object.fromEntries });
     proxy.destroy();
     if (r.ok === true) post({ type: "result", html: r.html, title: r.title });

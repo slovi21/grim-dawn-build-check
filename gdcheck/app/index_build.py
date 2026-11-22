@@ -12,9 +12,10 @@ to parse for every question). Runs only on the PC with the Grim Dawn installatio
     python -m gdcheck.app.index_build --version 1.3.0.8 --gd-dir "D:\\Steam\\steamapps\\common\\Grim Dawn"
     python -m gdcheck.app.index_build --version 1.3.0.8 --lang EN --out .
 
-Same options and output as the .35 build_index; content: schema 9 (.70) = the .35 index (schema 8) plus the
-meta fields NEW_META (the JSON differs from the .35 build in those fields and in the build date
-`_meta.erstellt`). The JSON keys stay German - they are the index schema read by gdcheck.data.index.
+Same options and output as the .35 build_index; content: schema 11 (.86) = schema 10 plus the item set records (gap 2); schema 10 (.85) = the .35 index (schema 8) plus the
+meta fields NEW_META (schema 9, .70) and NEW_META_10 with the cost formula tables COST_TABLES (schema 10: the
+attribute requirements of items); the JSON differs from the .35 build in those fields and in the build date
+`_meta.erstellt`. The JSON keys stay German - they are the index schema read by gdcheck.data.index.
 Standard library only (pure-Python LZ4 from gdcheck.data.savefile).
 """
 from __future__ import annotations
@@ -48,6 +49,20 @@ SKIP_TYPE_EXACT = {
     "FixedItemContainer",
 }
 
+# Schema 11 (gap 2, 20.11.2026): item set records have NO Class field in the database (template itemset.tpl,
+# empty record type), so the type filter above never kept one - no set bonus ever reached the numbers
+# (Cpt Magic: Blightlord 2 pieces +60 OA / +80 DA, awakened Blazeseer 3 pieces +120 % Fire and Burn).
+# They live in records/items/lootsets/ and records/items/awakened/lootsets/ and carry their bonuses as
+# arrays per number of worn pieces (index i = i + 1 pieces). ITEM_SET_TYPE is the type the index gives them.
+ITEM_SET_TYPE = "ItemSet"
+SET_FOLDER = "/lootsets/"
+SET_META = ("setMembers", "setName", "itemSkillModifierControl", "itemSkillAutoController",
+            "augmentMasteryName1", "augmentMasteryName2", "augmentMasteryName3",
+            "augmentSkillName1", "augmentSkillName2", "augmentSkillName3", "augmentSkillName4",
+            "augmentSkillName5", "modifierSkillName1", "modifierSkillName2", "modifierSkillName3",
+            "modifierSkillName4", "modifierSkillName5", "modifiedSkillName1", "modifiedSkillName2",
+            "modifiedSkillName3", "modifiedSkillName4", "modifiedSkillName5", "itemSkillName", "itemSkillLevel")
+
 # Slot compatibility of components and augments: one boolean field per slot in the augment's own
 # record (not at the item). Without them no advice can say whether an augment fits the item.
 SLOT_FLAGS = [
@@ -65,6 +80,13 @@ SLOT_FLAGS = [
 # tools/index_patch.py adds exactly these fields to an existing index from the raw .arz.
 NEW_META = ("augmentMasteryName3", "skillDisplayName", "lifeMonitorPercent",
             "damageAbsorption", "damageAbsorptionPercent")
+# Schema 10 (.85, gap 1 of M14): the cost record of an item, whose equations give its Physique, Cunning and Spirit
+# requirement (gdcheck.mechanics.requirements); the equations come with the tables (COST_TABLES).
+NEW_META_10 = ("itemCostName",)
+# Schema 12 (.87, M16): the fields the game rolls an item's values with. Its attributes are rolled from the item
+# seed; offensive damage values are then scaled by attributeScalePercent of the base item, and the roll of an
+# affix has the spread lootRandomizerJitter (gdcheck.mechanics.item_roll).
+NEW_META_12 = ("attributeScalePercent", "lootRandomizerJitter")
 
 # Descriptive fields kept next to the bonus values ("m" of a record entry).
 META_FIELDS = [
@@ -89,12 +111,19 @@ META_FIELDS = [
     "skillMaxLevel", "skillUltimateLevel", "skillTier", "weaponDamagePct",
     # schema 9 (.70)
     *NEW_META,
+    # schema 10 (.85)
+    *NEW_META_10,
+    # schema 12 (.87)
+    *NEW_META_12,
 ]
 
 # Layout of the index. Higher = new fields; GD-Tools rebuilds older indexes automatically.
+# 12: roll fields of items and affixes (NEW_META_12): values rolled from the item seed;
+# 11: item set records (records without type in a lootsets folder, type ItemSet): set bonuses (gap 2);
+# 10: cost record of items (NEW_META_10) and the cost formula tables (COST_TABLES): attribute requirements;
 # 9: third mastery bonus, skill display tag, low-health trigger and absorption fields (NEW_META);
 # 8: affix pools from the real loot fields; 7: monster bonuses per difficulty; 6: bosses; 5: constellations
-INDEX_SCHEMA = 9
+INDEX_SCHEMA = 12
 
 # Constellations: affinity (need/bonus) and the star mapping live in the UI records of this folder.
 CONSTELLATION_PREFIX = "records/ui/skills/devotion/"
@@ -115,6 +144,18 @@ LEVEL_TABLES = [
     "records/game/balancingadjustment_mp+difficulty_enemies01.dbr",
     "records/game/balancingadjustment_ultramode_enemies01.dbr",
 ]
+# schema 10: the cost formulas of items (`itemCostName`); their <prefix><Strength|Dexterity|Intelligence>Equation give the
+# attribute requirements (13 records in game data 1.3.1.2)
+COST_TABLES = [
+    "records/game/itemcostformulas.dbr", "records/game/itemcostformulas_epic.dbr",
+    "records/game/itemcostformulas_legend.dbr", "records/game/itemcostformulas_medium.dbr",
+    "records/game/itemcostformulas_heavy.dbr", "records/game/itemcostformulas_heavy_epic.dbr",
+    "records/game/itemcostformulas_heavy_legend.dbr", "records/game/itemcostformulas_caster.dbr",
+    "records/game/itemcostformulas_caster_epic.dbr", "records/game/itemcostformulas_caster_legend.dbr",
+    "records/game/itemcostformulas_focus.dbr", "records/game/itemcostformulas_focus_epic.dbr",
+    "records/game/itemcostformulas_focus_legend.dbr",
+]
+LEVEL_TABLES += COST_TABLES
 
 # Fields the display name comes from (order = priority).
 NAME_TAG_FIELDS = ("itemNameTag", "skillDisplayName", "lootRandomizerName", "description", "skillTabTitle")
@@ -249,8 +290,41 @@ def affix_pools(item_refs: dict, tables: dict, depth: int = 3, item_level: dict 
     return out
 
 
-def wanted(rtype: str) -> bool:
-    return rtype.startswith(KEEP_TYPE_PREFIX) and rtype not in SKIP_TYPE_EXACT
+def wanted(rtype: str, name: str = "") -> bool:
+    return (rtype.startswith(KEEP_TYPE_PREFIX) and rtype not in SKIP_TYPE_EXACT) or maybe_item_set(rtype, name)
+
+
+def maybe_item_set(rtype: str, name: str) -> bool:
+    """A record without type in a lootsets folder: an item set if it has setMembers (checked after reading)."""
+    return not rtype and SET_FOLDER in name.replace("\\", "/").lower()
+
+
+def set_display_name(rec: dict, loc: dict) -> str:
+    """The set name: its setName tag in the localization (the index keeps it as "tags"), else FileDescription."""
+    tag = rec.get("setName")
+    name = clean_text(loc.get(tag, "")) if isinstance(tag, str) and tag else ""
+    if name:
+        return name
+    fd = rec.get("FileDescription")
+    return clean_text(fd) if isinstance(fd, str) else ""
+
+
+def item_set_entry(rec: dict, name: str) -> dict | None:
+    """Index entry of an item set record ("t" ItemSet, "n" set name, "m" members and the names of its skills,
+    "f" bonus arrays per piece count) - None without members (story signs reuse itemSetName)."""
+    members = rec.get("setMembers")
+    members = [m for m in (members if isinstance(members, list) else [members]) if isinstance(m, str) and m]
+    if not members:
+        return None
+    m = {k: rec[k] for k in SET_META if rec.get(k) not in (None, "", 0, [])}
+    m["setMembers"] = members
+    entry = {"t": ITEM_SET_TYPE, "m": m}
+    if name:
+        entry["n"] = name
+    f = bonus_fields(rec)
+    if f:
+        entry["f"] = f
+    return entry
 
 
 def meta_fields(rec: dict, rtype: str) -> dict:
@@ -402,6 +476,7 @@ def index_data(game_dir: Path, version: str, lang: str = "EN", verbose: bool = F
     controllers: dict[str, dict] = {}
     sources = []
     fields_total = 0
+    set_fields = 0                      # schema 11: bonus fields of the item set records (apart from fields_total)
 
     raw_tables: dict[str, list] = {}       # LootRandomizerTable -> entries
     item_refs: dict[str, dict] = {}        # item -> affix tables
@@ -416,6 +491,7 @@ def index_data(game_dir: Path, version: str, lang: str = "EN", verbose: bool = F
         opened.append(db)
         n_before = len(records)
         seen = 0
+        sets_seen = 0
         for name, info in db.records.items():
             if info.rtype.startswith("Loot"):
                 loot_types[info.rtype] = loot_types.get(info.rtype, 0) + 1
@@ -454,10 +530,17 @@ def index_data(game_dir: Path, version: str, lang: str = "EN", verbose: bool = F
                                 for kind in KINDS:
                                     target[kind] += [t for t in refs[kind] if t not in target[kind]]
                 continue
-            if not wanted(info.rtype):
+            if not wanted(info.rtype, name):
                 continue
             rec = db.read_record(name)
             if not rec:
+                continue
+            if maybe_item_set(info.rtype, name):
+                set_entry = item_set_entry(rec, set_display_name(rec, loc))
+                if set_entry:          # counted apart (sets_seen, set_fields): schema 10 content stays exactly the same
+                    sets_seen += 1
+                    set_fields += len(set_entry.get("f") or {})
+                    records[name] = set_entry
                 continue
             if info.rtype.startswith(("Armor", "Weapon", "Item")):
                 refs = randomizer_refs(rec)
@@ -486,6 +569,8 @@ def index_data(game_dir: Path, version: str, lang: str = "EN", verbose: bool = F
             "records_gesamt": len(db.records),
             "davon_uebernommen": seen,
         })
+        if sets_seen:                                   # schema 11: item set records of this database
+            sources[-1]["item_sets"] = sets_seen
         if verbose:
             out(f"  {path.name:<16} {sources[-1]['mb']:>7.2f} MB  "
                 f"{len(db.records):>6} Records  -> {seen:>5} relevant  "
@@ -553,6 +638,9 @@ def index_data(game_dir: Path, version: str, lang: str = "EN", verbose: bool = F
             "sternbild_records": len(constellations),
             "bosse": len(bosses),
             "bonusfelder": fields_total,
+            # schema 11: the item set records (in "records" and in records above, counted apart here)
+            "item_sets": {"records": sum(1 for e in records.values() if e.get("t") == ITEM_SET_TYPE),
+                          "bonusfelder": set_fields},
             "hinweis": "Derived extract of the Grim Dawn database. "
                        "Gear, affixes, sets, skills and devotions only; "
                        "bonus fields only. Valid only for the "

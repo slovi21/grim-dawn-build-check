@@ -48,6 +48,21 @@ def effective_ruleset(ruleset: dict, game_version: str) -> tuple[dict, tuple, tu
     return rules, tuple(notes), tuple(dict.fromkeys(keys))
 
 
+def onslaught_unconfirmed(ctx) -> bool:
+    """True when the Onslaught value per stack is not confirmed for these game data - one rule for E2, E6 and the notes
+    per action (review M14): a playtest block of the ruleset set it, the version label of the game data is unknown (the
+    base rules apply), or the label comes from a stale log.html (GD-Tools, `Options.version_unconfirmed`). Read from the
+    context itself, never from the text of a note."""
+    return ("onslaught_per_stack" in getattr(ctx, "rule_overrides", ())
+            or _vkey(getattr(ctx, "game_version", None)) is None
+            or bool(getattr(getattr(ctx, "options", None), "version_unconfirmed", False)))
+
+
+def onslaught_source(ctx) -> str:
+    """Where the Onslaught value per stack comes from, as the report says it: Crate, or ASSUMED (onslaught_unconfirmed)."""
+    return "not confirmed for this game version, ASSUMED" if onslaught_unconfirmed(ctx) else "Crate"
+
+
 @dataclass(frozen=True)
 class Options:
     profile: ContentProfile = ContentProfile.GENERAL

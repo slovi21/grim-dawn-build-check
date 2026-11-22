@@ -44,6 +44,7 @@ UPDATING_TEXT = "Game data is being updated - please use the installer meanwhile
 
 _PARSE_ERRORS = (GDFormatError, ValueError, EOFError, IndexError, KeyError)      # the same set the command line names
 _TITLE = re.compile(r"<title>(.*?)</title>", re.S)
+_LIVE_VERSION = re.compile(r"[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}")   # four numbers: the only live version the report will show
 
 
 class WebError(Exception):
@@ -123,7 +124,14 @@ def _size_problem(size: int) -> str:
     return ""
 
 
-def check(gdc: bytes, data: WebData, profile: str = "general", detail: bool = False) -> dict:
+def _options(profile: str, detail: bool, live_version) -> Options:
+    """The page hands the live game version in when it is newer than the data; anything but four numbers is dropped, so the
+    report line stays what it was and nothing but digits and dots can reach the report."""
+    live = live_version if isinstance(live_version, str) and _LIVE_VERSION.fullmatch(live_version) else None
+    return Options(profile=ContentProfile(profile), detail=detail, live_version=live)
+
+
+def check(gdc: bytes, data: WebData, profile: str = "general", detail: bool = False, live_version: str | None = None) -> dict:
     """Check a player.gdc: {"ok", "html", "title", "message"}. A wrong profile is a programming error (ValueError);
     everything the player can cause is a message. `title` is plain text with the player's content in it (the character's
     name): the page must set it with textContent, never through innerHTML."""
@@ -139,21 +147,22 @@ def check(gdc: bytes, data: WebData, profile: str = "general", detail: bool = Fa
     except Exception as ex:                                   # noqa: BLE001 - not a parse error: the engine's, not the player's
         return _fail(_check_failed(ex))
     try:
-        page = _html_of(ch, data.index, Options(profile=ContentProfile(profile), detail=detail))
+        page = _html_of(ch, data.index, _options(profile, detail, live_version))
     except Exception as ex:                                   # noqa: BLE001 - the page must get a message, not a traceback
         return _fail(_check_failed(ex))
     m = _TITLE.search(page)
     return {"ok": True, "html": page, "title": html.unescape(m.group(1)) if m else "", "message": ""}
 
 
-def check_path(path: Path, data: WebData, profile: str = "general", detail: bool = False) -> dict:
+def check_path(path: Path, data: WebData, profile: str = "general", detail: bool = False,
+               live_version: str | None = None) -> dict:
     """check() of a file: read it, check it, delete it (the save stays in the worker only as long as it is checked)."""
     path = Path(path)
     try:
         problem = _size_problem(path.stat().st_size)          # a huge file is not read at all
         if problem:
             return _fail(problem)
-        return check(path.read_bytes(), data, profile, detail)
+        return check(path.read_bytes(), data, profile, detail, live_version)
     finally:
         try:
             path.unlink()

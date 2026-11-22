@@ -119,6 +119,7 @@ h1 { font: 400 clamp(44px, 7vw, 68px)/0.95 var(--display); margin: 0; letter-spa
 .copy { font: 600 14px/1 var(--narrow); color: var(--ash); background: transparent; border: 1px solid var(--seam); border-radius: 4px; padding: 8px 12px; cursor: pointer; }
 .copy:hover { color: var(--bone); background: var(--plate); }
 .stale { margin: 14px 0 0; font-size: 14px; color: var(--risk); }
+.notes { margin: 10px 0 0; font-size: 14px; color: var(--ash); }
 
 .verdict { margin: 40px 0 52px; font: 400 clamp(24px, 3.2vw, 31px)/1.25 var(--display); max-width: 30em; }
 

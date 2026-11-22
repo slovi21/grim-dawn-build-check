@@ -119,7 +119,8 @@ class Watch:
 class Overview:
     """Block 1. `cls` is the class name and `masteries` the two masteries ("Demolitionist and Arcanist"); `stale` the line
     about game data that were not checked against the live patch ("" when they were); `gates_met` the labels of the gates
-    that are already met; `lever` the bold start of the lever line and `lever_note` its sentence about the worth."""
+    that are already met; `lever` the bold start of the lever line and `lever_note` its sentence about the worth; `notes`
+    the calm sentences of the report (M19: the form that counts, unspent skill points, item values), one paragraph."""
     name: str
     cls: str
     masteries: str
@@ -135,6 +136,7 @@ class Overview:
     lever_ref: str
     watch: tuple
     lever_note: str = ""
+    notes: tuple = ()
 
 
 # ---------------------------------------------------------------------------

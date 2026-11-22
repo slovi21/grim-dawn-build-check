@@ -38,6 +38,7 @@ greedy_moves, zusammenfassen -> merge_moves; zusatz_wert / _eigene moved to valu
 """
 from __future__ import annotations
 
+from ...domain.activity import DUAL_WIELD_ONLY
 from .. import damage_types as DT
 from ..save_facts import (EFFECT_ENEMY_DEBUFF, EFFECT_PERMANENT, EFFECT_SKILL_ONLY,
                           EFFECT_TEMPORARY, EFFECT_TOGGLE, EFFECT_WEAPON_CONDITION, buff_record,
@@ -244,7 +245,9 @@ def assess(ctx, pr: ValueProfile) -> dict:
              "max": mx, "max_estimated": estimated, "ultimate": u,
              "effect": effect, "mastery": mastery, "rated": fn is not None,
              "last": None, "next": None, "own_last": None,
-             "own_next": None, "note": ""}
+             "own_next": None, "note": "",
+             # E2: a dualWieldOnly skill that the OTHER weapon set (two one-handers) brings back after a swap
+             "other_set": effect == EFFECT_WEAPON_CONDITION and rn in DUAL_WIELD_ONLY and ctx.other_set_dual_wields()}
         can_grow = p < mx and (u is None or rank + 1 <= u)
         if fn is not None:
             def marginal(r_from, r_to, _fn=fn, _recs=recs):
@@ -303,7 +306,11 @@ def greedy_moves(entries) -> list:
         s = max((e for e in sinks if e is not q), key=lambda e: e["next"], default=None)
         if s is None or s["next"] - q["last"] < MIN_ADVANTAGE:
             break
-        moves.append({"from": q["name"], "to": s["name"], "loss": q["last"], "gain": s["next"]})
+        # E2: "dead" - the points sit in a skill that does nothing for this build (its weapon condition is not met): moving
+        # them costs nothing for real, so the check counts them as lost points, not as a skill the scale cannot value.
+        # Not so when the other weapon set meets the condition: the player swaps, the skill is no waste ("other_set")
+        moves.append({"from": q["name"], "to": s["name"], "loss": q["last"], "gain": s["next"],
+                      "dead": q.get("effect") == EFFECT_WEAPON_CONDITION and not q.get("other_set")})
         # advance the state
         q["points"] -= 1
         q["rank"] -= 1
@@ -323,7 +330,7 @@ def merge_moves(moves) -> list:
     for z in moves:
         k = (z["from"], z["to"])
         e = pairs.setdefault(k, {"from": z["from"], "to": z["to"], "points": 0,
-                                 "loss": 0.0, "gain": 0.0})
+                                 "loss": 0.0, "gain": 0.0, "dead": bool(z.get("dead"))})
         e["points"] += 1
         e["loss"] += z["loss"]
         e["gain"] += z["gain"]

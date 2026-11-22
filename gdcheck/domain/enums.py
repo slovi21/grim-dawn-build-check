@@ -14,11 +14,12 @@ class SourceKind(str, Enum):
     COMPONENT_BONUS = "component_bonus"
     AUGMENT = "augment"
     ASCENDED = "ascended"
-    TRANSMUTER = "transmuter"      # modifier_name / transmute_name of an item
+    TRANSMUTER = "transmuter"      # modifier_name of an item (not the illusion, transmute_name: B4)
     SKILL = "skill"                # mastery skill with points
     DEVOTION = "devotion"          # devotion node
     ITEM_MODIFIER = "item_modifier"  # modifierSkillName<n> of an item part
     GRANTED_SKILL = "granted_skill"  # itemSkillName of an item part
+    SET = "set"                    # item set bonus at the number of worn pieces
 
 
 class Activity(str, Enum):
@@ -29,7 +30,7 @@ class Activity(str, Enum):
     SKILL_ONLY = "skill_only"                     # only for one attack/spell
     WEAPON_CONDITION_UNMET = "weapon_condition"
     ENEMY_DEBUFF = "enemy_debuff"
-    FORM_ONLY = "form_only"                       # only while transformed
+    FORM_ONLY = "form_only"                       # only while transformed; M19: a levelled form that does not count
 
 
 ON_SHEET = (Activity.PERMANENT, Activity.TOGGLE)

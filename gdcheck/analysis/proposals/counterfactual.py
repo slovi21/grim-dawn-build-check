@@ -10,6 +10,7 @@ from dataclasses import replace
 
 from ...combat import actions as ACT
 from ...combat import target_state as TS
+from ...domain import item_values as IV
 from ...domain import loader
 from ...domain.enums import Activity, SourceKind, StackingPolicy
 from ...domain.sources import EffectInstance, SourceInstance, SourceSet
@@ -425,16 +426,14 @@ def _resist_deeper(base: Baseline, ctx2, snap2, margin: float = 0.5) -> set:
 
 
 def with_item_part(character, slot: str, part: str, record: str | None):
-    """Deep copy of the character with one part of a worn item replaced."""
+    """Deep copy of the character with one part of a worn item replaced. The other parts keep exactly the values they were rolled
+    with (E2: the item keeps its seed, but a swapped prefix or suffix must not roll the parts that stay again), only the new
+    part is rolled (ASSUMED, see item_values.replaced_part)."""
     ch = copy.copy(character)
     ch.worn = [copy.copy(w) for w in character.worn]
     for w in ch.worn:
         if w.slot == slot:
-            w.item = dict(w.item)
-            if record:
-                w.item[part] = record
-            else:
-                w.item.pop(part, None)
+            w.item = IV.replaced_part(w.item, part, record)
     return ch
 
 

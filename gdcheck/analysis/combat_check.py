@@ -290,7 +290,7 @@ def check(ctx, sources, snap, actions, targets, onslaught: int = 0, procs=None, 
     benchmark targets (dummy, Mogara) are not checked here."""
     from ..data import versioned as V
     ver, fp = V.index_identity(ctx.index)
-    combat = BD.combat_meta(ROOT, ver or "1.3.0.8", fp)
+    combat = BD.combat_meta(ROOT, ver or "1.3.1.2", fp)
     if not combat or ctx.difficulty.value != 2:
         return []                                   # the modelled bosses are Ultimate bosses
     _level, level_src = monster_level(ctx)

@@ -531,8 +531,8 @@ def main(argv=None) -> int:
         tab = json.loads(Path(a.tables).read_text(encoding="utf-8"))
         tab.setdefault("_version", tab.get("game_version"))
     else:
-        tab = AD.tables(a.version or "1.3.0.8")
-    ver = a.version or tab.get("_version") or "1.3.0.8"
+        tab = AD.tables(a.version or "1.3.1.2")
+    ver = a.version or tab.get("_version") or "1.3.1.2"
     from ..data import bosses as BD
     mon = monster_paths(BD.combat_meta(AD.ROOT, ver))       # boss animations (.54); {} without a boss file
     wanted = frozenset(table_paths(tab))

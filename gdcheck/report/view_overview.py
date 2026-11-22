@@ -19,11 +19,13 @@ from collections import Counter
 
 from ..analysis import guide as GD
 from ..analysis import readiness as RD
+from ..analysis import requirements as REQ
 from ..analysis import stage as STG
 from ..analysis import targets as TGT
 from ..analysis.proposals import effort as EF
 from ..domain.enums import Stage
 from . import common as CM
+from . import notes as NT
 from . import view as V
 from . import view_what as VW
 
@@ -99,8 +101,10 @@ def facts_of(a) -> tuple:
     stats = ch.stats
     deaths = int(stats.get("death_count") or 0)
     played = f"{(stats.get('playtime_seconds') or 0) / 3600:.0f} h, {deaths} death{'' if deaths == 1 else 's'}"
+    choice = NT.form_of(a)                                   # M19 (decision 67): the form the page is calculated in
+    form = (V.Fact("Form", f"{NT.name_of(a.ctx.index)(choice.record)}, {NT.points_text(choice.points)}"),) if choice else ()
     return (V.Fact("Level", str(ch.level)), V.Fact("Difficulty", diff),
-            V.Fact("Goal", CM.PROFILE_NAME.get(a.ctx.profile.value, a.ctx.profile.value)), V.Fact("Played", played))
+            V.Fact("Goal", CM.PROFILE_NAME.get(a.ctx.profile.value, a.ctx.profile.value)), V.Fact("Played", played), *form)
 
 
 def stale_line(ctx) -> str:
@@ -112,7 +116,8 @@ def stale_line(ctx) -> str:
                 "Start the game once, then check again.")
     if state == "mismatch":
         return (f"Game data {gv} does not match {ctx.options.live_version or 'your installed game'}. "
-                "Item values and rules may be outdated: rebuild the game data with GD-Tools.")
+                "Item values and rules may be outdated until the game data are updated (installer: rebuild them with "
+                "GD-Tools; online check: the site is updated after the next release).")
     if state == "unchecked":
         return f"Game data {gv}. The live patch was not checked for this report."
     return ""
@@ -454,9 +459,25 @@ def _penalty_items(a) -> list:
     return out
 
 
+def _disabled_items(a) -> list:
+    """.85 (decision 69): worn items the game switches off - the first watch-out, with the attribute values and the way
+    out (the same words as the first top issue)."""
+    disabled = getattr(a, "disabled", ()) or ()
+    off = REQ.texts(disabled)
+    if not off:
+        return []
+    slots = REQ.slots(disabled)
+    head = "Switched off by the game: " + (", ".join(slots[:-1]) + " and " + slots[-1] if len(slots) > 1 else slots[0])
+    if len(head.split()) > 15:                                    # a watch-out line has at most 16 words (spec 3.7)
+        head = f"Switched off by the game: {len(slots)} worn items"
+    values = off["short"][len(off["title"]):].lstrip(" -")
+    extra = CM.short_why(f"{values}: {off['fix'][0].lower()}{off['fix'][1:]}", 15)      # 15 words + "..." at most
+    return [V.Watch("Gap", f"{head}.", "Switched off by the game", extra, "", "")]
+
+
 def _error_items(a) -> list:
     return [V.Watch("Gap", CM.short_why(i.title, 16), CM.short_why(i.title, 16), CM.short_why(i.fix, 14), "", "")
-            for i in a.issues if i.severity == "ERROR" and not i.self_penalty]
+            for i in a.issues if i.severity == "ERROR" and not i.self_penalty and getattr(i, "code", "") != "G0"]
 
 
 def _warning_items(a, meta) -> list:
@@ -535,7 +556,7 @@ def _unknown_items(g) -> list:
 def watch_items(a, g, meta, ids) -> tuple:
     """At most four, most important first: a skill that weakens you, build errors, warnings about the data, high-risk
     bosses, an unbound celestial power, slots several proposals want, records the game data do not know."""
-    items = (_penalty_items(a) + _error_items(a) + _warning_items(a, meta) + _boss_items(a)
+    items = (_disabled_items(a) + _penalty_items(a) + _error_items(a) + _warning_items(a, meta) + _boss_items(a)
              + _unbound_items(a, g, ids) + _conflict_items(g) + _unknown_items(g))
     return tuple(items[:WATCH_LIMIT])
 
@@ -562,4 +583,4 @@ def overview(a, g, versions, meta) -> V.Overview:
     lever, note, ref = lever_of(g, ids)
     return V.Overview(ch.name, cls, masteries, facts_of(a), stale_line(a.ctx), verdict(a, g, gates),
                       _track(a, g, open_, labels), head, tiles, met, tuple(step_of(p, a, ids, caps) for p in g.steps),
-                      lever, ref, watch_items(a, g, meta, ids), note)
+                      lever, ref, watch_items(a, g, meta, ids), note, tuple(NT.notes_of(a)))

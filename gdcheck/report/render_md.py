@@ -31,9 +31,12 @@ def player(rep) -> list[str]:
     lines only before the risk legend: every section title is a heading, which ends the area table and the
     lists before it (Markdown); several warnings are one list in one quote.
     Dropped against .65: the score band line (HTML and text keep it) and the 'More details' line, now
-    part of the header line; dropped in .72: the Profile text (the score heading names it)."""
+    part of the header line; dropped in .72: the Profile text (the score heading names it).
+    M19: the form that counts joins the header line, and the calm notes (form, free skill points, item values) are ONE line
+    after the risk legend - the worst case is 30 lines."""
     h = rep.header
     out = [f"**{h['name']}** · Level {h['level']} {h['class']} · {h['difficulty']} · {h['stage']}"
+           + (f" · {h['form']}" if h.get("form") else "")
            + (" · Hardcore" if h.get("hardcore") else "")
            + f" · {h['version']}" + (f" · Ultimate campaign: {h['campaign']}" if h.get("campaign") else "")
            + " · details: Expert View"]
@@ -66,6 +69,9 @@ def player(rep) -> list[str]:
             out += ["", f"_{rep.boss_legend}_"]
     else:
         out.append("- starts at MID (Ultimate story bosses)")
+    notes = getattr(rep, "notes", None)
+    if notes:                    # M19: one calm line, after the risk legend as one paragraph; else a blank line ends the list
+        out += ([] if rep.bosses and getattr(rep, "boss_legend", "") else [""]) + ["_" + " ".join(notes) + "_"]
     return out
 
 

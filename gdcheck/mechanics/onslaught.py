@@ -3,12 +3,13 @@ from __future__ import annotations
 
 from .policy import Confidence, rule
 
-PER_STACK = 0.15
+PER_STACK = 0.15                        # up to 1.3.0.8; since 1.3.1 the ruleset sets 0.12 (by_version, CONFIRMED)
 
 
 @rule("onslaught_multiplier", Confidence.EXACT,
       "Game Guide Combat: 15% per stack; Zantai (Crate forum 155852): '+15% absolute damage "
-      "(calculated after other bonuses are applied)' = own multiplier. 1.3.1 playtest: 12% (not live)")
+      "(calculated after other bonuses are applied)' = own multiplier. Since 1.3.1.0: 12% per stack (Crate patch "
+      "notes, forum 160806, 08.10.2026), set by the ruleset block by_version 1.3.1")
 def onslaught_multiplier(stacks: int, per_stack: float = PER_STACK) -> float:
     return 1.0 + per_stack * max(0, stacks)
 
@@ -30,9 +31,14 @@ def is_spender(cooldown: float | None, is_debuff: bool = False, is_pet: bool = F
 
 @rule("onslaught_expiry", Confidence.TESTED,
       "stacks fall off after skillComboChargeDuration (Gruldir's Cleaver: 5 s, game database); "
-      "a later timeline uses this state function (combat spec V2 8, RG-07)")
-def onslaught_state(stacks: int, age_s: float, duration_s: float = 5.0) -> int:
-    """Stacks still available `age_s` seconds after the last stack was gained."""
+      "a later timeline uses this state function (combat spec V2 8, RG-07). Since 1.3.1.0 a weapon swap or an "
+      "area change wipes all stacks (Crate patch notes, forum 160806; ruleset onslaught_wiped_on_swap)")
+def onslaught_state(stacks: int, age_s: float, duration_s: float = 5.0, swapped: bool = False,
+                    wiped_on_swap: bool = False) -> int:
+    """Stacks still available `age_s` seconds after the last stack was gained; `swapped`: a weapon swap or an area
+    change happened since then, which wipes them where the game version does it (`wiped_on_swap`)."""
+    if swapped and wiped_on_swap:
+        return 0
     return max(0, int(stacks)) if age_s <= duration_s else 0
 
 

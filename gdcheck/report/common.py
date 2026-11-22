@@ -219,7 +219,7 @@ def boss_fights(a) -> dict:
         from ..data import bosses as BD
         from ..data import versioned as V
         ver, fp = V.index_identity(a.ctx.index)
-        data = (BD.combat_meta(ROOT, ver or "1.3.0.8", fp) or {}).get("bosses") or {}
+        data = (BD.combat_meta(ROOT, ver or "1.3.1.2", fp) or {}).get("bosses") or {}
     except (OSError, ValueError, AttributeError, TypeError):   # no boss data: every boss is its own fight
         data = {}
     parent: dict = {}
